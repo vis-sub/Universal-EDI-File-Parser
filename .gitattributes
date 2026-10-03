@@ -1,0 +1,2 @@
+# Sample EDI files depend on exact bytes (CRLF, bare CR, control-char delimiters): never convert line endings.
+samples/** -text
