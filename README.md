@@ -31,7 +31,7 @@ Compose starts nginx in front of 2 parser instances. Scale out with `docker comp
 Interactive API docs are at http://localhost:8080/docs.
 
 - **[docs/service.md](docs/service.md)**: API, record format, errors, configuration, client examples
-- **[docs/deployment.md](docs/deployment.md)**: scaling, and running on Compose, Kubernetes (`deploy/kubernetes`), ECS,
+- **[docs/deployment.md](docs/deployment.md)**: scaling, and running on Compose, Kubernetes (`deploy/kubernetes/overlays`), ECS,
   Cloud Run, Container Apps or VMs, or as a library in queue workers or functions
 
 ## Library

@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .dialect import EDIFACT, HL7, TRADACOMS, X12, Dialect
+from .textutil import display, has_escaped_bytes  # noqa: F401 (re-exported)
 
 
 def split_escaped(s: str, sep: str, release: str | None) -> list[str]:
@@ -75,13 +76,14 @@ class Segment:
         reps = self.repeats(n)
         raw = reps[repeat] if repeat < len(reps) else ""
         if self._atomic(n):
-            return [raw]
-        return [self.dialect.unescape(c) for c in split_escaped(raw, self.dialect.component, self.dialect.release)]
+            return [display(raw)]
+        return [display(self.dialect.unescape(c))
+                for c in split_escaped(raw, self.dialect.component, self.dialect.release)]
 
     def value(self, n: int, component: int | None = None, repeat: int = 0) -> str:
         """Element value with escapes resolved; ``component`` is 1-based."""
         if component is None:
-            return self.dialect.unescape(self.element(n))
+            return display(self.dialect.unescape(self.element(n)))
         comps = self.components(n, repeat)
         return comps[component - 1] if 1 <= component <= len(comps) else ""
 
@@ -229,7 +231,8 @@ class Document:
         return self.prefix + "".join(s.raw for s in self.segments)
 
     def to_bytes(self) -> bytes:
-        return self.to_text().encode(self.encoding)
+        errors = "surrogateescape" if self.encoding == "utf-8" else "strict"
+        return self.to_text().encode(self.encoding, errors)
 
 
 # -- streaming events ----------------------------------------------------------------

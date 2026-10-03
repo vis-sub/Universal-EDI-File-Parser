@@ -23,24 +23,21 @@ Source = Union[str, "os.PathLike[str]", bytes, bytearray, BinaryIO, Iterable[byt
 
 
 class _Decoder:
-    """Incremental decoding. ``auto`` = UTF-8, falling back to Latin-1 at the first invalid byte."""
+    """Incremental decoding that gives the same text however the input is chunked.
+
+    ``auto`` decodes UTF-8 and keeps each invalid byte as a lone surrogate
+    (``surrogateescape``), so nothing is lost and ``Document.to_bytes()`` restores
+    the exact input. Values shown to users read those bytes as Latin-1 (see
+    ``model.display``), which is what a non-UTF-8 EDI file almost always is.
+    """
 
     def __init__(self, encoding: str = "auto"):
-        self.auto = encoding == "auto"
-        self.encoding = "utf-8" if self.auto else encoding
-        self._dec = codecs.getincrementaldecoder(self.encoding)()
-        self.switched = False
+        self.encoding = "utf-8" if encoding == "auto" else encoding
+        errors = "surrogateescape" if self.encoding == "utf-8" else "strict"
+        self._dec = codecs.getincrementaldecoder(self.encoding)(errors=errors)
 
     def decode(self, data: bytes, final: bool = False) -> str:
-        try:
-            return self._dec.decode(data, final)
-        except UnicodeDecodeError:
-            if not self.auto or self.switched:
-                raise
-            pending = self._dec.getstate()[0]
-            self.encoding, self.switched = "latin-1", True
-            self._dec = codecs.getincrementaldecoder("latin-1")()
-            return self._dec.decode(pending + data, final)
+        return self._dec.decode(data, final)
 
 
 class StreamParser:
@@ -64,12 +61,7 @@ class StreamParser:
     def feed(self, data: bytes | str) -> list[Event]:
         if isinstance(data, str):
             return self._consume(self._tokenizer.feed(data))
-        was_switched = self._decoder.switched
-        text = self._decoder.decode(bytes(data))
-        if self._decoder.switched and not was_switched:
-            self._builder.add_issue(Issue("info", "encoding_fallback",
-                                          "Input is not valid UTF-8; decoding the rest as Latin-1"))
-        return self._consume(self._tokenizer.feed(text))
+        return self._consume(self._tokenizer.feed(self._decoder.decode(bytes(data))))
 
     def close(self) -> list[Event]:
         if self._closed:

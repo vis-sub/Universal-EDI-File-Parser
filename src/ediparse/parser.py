@@ -10,14 +10,6 @@ from .model import Document
 from .stream import StreamParser
 
 
-def decode(data: bytes) -> tuple[str, str]:
-    """Decode losslessly: UTF-8 if valid, else Latin-1 (which maps every byte)."""
-    try:
-        return data.decode("utf-8"), "utf-8"
-    except UnicodeDecodeError:
-        return data.decode("latin-1"), "latin-1"
-
-
 def parse_text(text: str, encoding: str = "utf-8") -> Document:
     p = StreamParser(retain=True)
     p.feed(text)
@@ -27,9 +19,12 @@ def parse_text(text: str, encoding: str = "utf-8") -> Document:
     return doc
 
 
-def parse_bytes(data: bytes) -> Document:
-    text, encoding = decode(data)
-    return parse_text(text, encoding)
+def parse_bytes(data: bytes, encoding: str = "auto") -> Document:
+    """Parse raw bytes. ``auto``: UTF-8, with any invalid bytes read as Latin-1 (still round-trips exactly)."""
+    p = StreamParser(encoding, retain=True)
+    p.feed(data)
+    p.close()
+    return p.document()
 
 
 def parse_file(path: str | Path) -> Document:

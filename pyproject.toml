@@ -25,7 +25,7 @@ Issues = "https://github.com/vis-sub/universal-edi-parser/issues"
 
 [project.optional-dependencies]
 service = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
-dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "uvicorn[standard]>=0.29"]
+dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27", "fastapi>=0.110", "uvicorn[standard]>=0.29"]
 
 [project.scripts]
 ediparse = "ediparse.cli:main"
@@ -36,3 +36,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning:fastapi.testclient", "ignore:Using `httpx` with `starlette.testclient`"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM", "PL"]
+ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004", "E501", "SIM108", "PLW2901", "PLC0415"]

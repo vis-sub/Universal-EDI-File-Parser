@@ -1,10 +1,21 @@
 """Render parse results: per-event JSON objects (streaming), flat CSV rows, a full-document dict, or a text tree."""
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Iterator
 
 from .model import (Document, Event, Group, Interchange, InterchangeEvent, Issue, IssueEvent, Message,
                     MessageEvent, Segment)
+
+
+def dumps(record: dict) -> str:
+    """JSON text that is always UTF-8 encodable (falls back to ASCII escapes if a stray surrogate slipped in)."""
+    text = json.dumps(record, ensure_ascii=False)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        text = json.dumps(record)
+    return text
 
 
 def element_value(seg: Segment, n: int):

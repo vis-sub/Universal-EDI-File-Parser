@@ -35,7 +35,7 @@ def test_every_segment_placed_once(path):
 
 
 @pytest.mark.parametrize("path", [p for p in SAMPLE_FILES if p.parts[-3] == "x12"],
-                         ids=[i for i, p in zip(ids, SAMPLE_FILES) if p.parts[-3] == "x12"])
+                         ids=[i for i, p in zip(ids, SAMPLE_FILES, strict=True) if p.parts[-3] == "x12"])
 def test_x12_message_type_matches_filename(path):
     doc = parse_file(path)
     expected = path.name.split("_")[0].rstrip("PID")  # 837P_... -> 837

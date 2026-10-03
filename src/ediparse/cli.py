@@ -7,10 +7,11 @@ import json
 import os
 import sys
 from collections.abc import Iterator
+from pathlib import Path
 
 from .dialect import EDIDetectionError
 from .model import Event, InterchangeEvent, MessageEvent
-from .output import CSV_COLUMNS, Summary, csv_rows, document_to_dict, event_to_dict, tree_lines
+from .output import CSV_COLUMNS, Summary, csv_rows, document_to_dict, dumps, event_to_dict, tree_lines
 from .parser import parse_bytes
 from .stream import stream
 
@@ -22,12 +23,18 @@ def _events(path: str) -> Iterator[Event]:
 
 
 def _read(path: str) -> bytes:
-    return sys.stdin.buffer.read() if path == "-" else open(path, "rb").read()
+    return sys.stdin.buffer.read() if path == "-" else Path(path).read_bytes()
 
 
 def _fmt_issue(f: str, i, ctx: str = "") -> str:
     where = f" (segment {i.segment_index})" if i.segment_index is not None else ""
     return f"{f}: {i.severity}: [{i.code}] {i.message}{where}{ctx}"
+
+
+def _port(value: str) -> int:
+    if not (value.isascii() and value.isdigit() and 0 < int(value) < 65536):
+        raise argparse.ArgumentTypeError(f"invalid port {value!r} (from --port or EDIPARSE_HTTP_PORT)")
+    return int(value)
 
 
 def _serve(args) -> int:
@@ -63,15 +70,18 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("validate", help="report envelope/control-number issues; exit 1 on errors")
     v.add_argument("files", nargs="+")
     s = sub.add_parser("serve", help='run the HTTP service (needs "ediparse[service]")')
-    s.add_argument("--host", default=os.environ.get("EDIPARSE_HOST", "127.0.0.1"))
-    s.add_argument("--port", type=int, default=int(os.environ.get("EDIPARSE_PORT", "8080")))
+    # Not EDIPARSE_PORT/EDIPARSE_HOST: Kubernetes injects EDIPARSE_PORT=tcp://... into pods when a
+    # Service is named "ediparse" (found when deploying to a real cluster).
+    s.add_argument("--host", default=os.environ.get("EDIPARSE_HTTP_HOST", "127.0.0.1"))
+    s.add_argument("--port", type=_port, default=os.environ.get("EDIPARSE_HTTP_PORT", "8080"),
+                   help="default: $EDIPARSE_HTTP_PORT or 8080")
     s.add_argument("--workers", type=int, help="worker processes (default: $WEB_CONCURRENCY or 1)")
     args = ap.parse_args(argv)
 
     if args.command == "serve":
         return _serve(args)
 
-    out = open(args.output, "w", newline="", encoding="utf-8") if getattr(args, "output", None) else sys.stdout
+    out = open(args.output, "w", newline="", encoding="utf-8") if getattr(args, "output", None) else sys.stdout  # noqa: SIM115 (closed in finally)
     status = 0
     try:
         fmt = getattr(args, "format", None)
@@ -107,8 +117,7 @@ def main(argv: list[str] | None = None) -> int:
                     summary = Summary()
                     for ev in _events(f):
                         summary.add(ev)
-                        print(json.dumps({"file": f, **event_to_dict(ev, not args.no_segments)},
-                                         ensure_ascii=False), file=out)
+                        print(dumps({"file": f, **event_to_dict(ev, not args.no_segments)}), file=out)
                     print(json.dumps({"file": f, **summary.to_dict()}), file=out)
                 elif fmt == "csv":
                     writer.writerows([f, *row] for row in csv_rows(_events(f)))
