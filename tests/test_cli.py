@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from ediparse.cli import main
 
@@ -9,7 +10,7 @@ PO = str(SAMPLES / "x12/5010/850_purchase_order.edi")
 
 def test_ndjson_default_streams_one_object_per_document(capsys):
     assert main([PO]) == 0
-    records = [json.loads(l) for l in capsys.readouterr().out.splitlines()]
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert [r["type"] for r in records] == ["message", "interchange", "summary"]
     assert records[0]["message"]["type"] == "850" and records[0]["group"]["type"] == "PO"
     assert records[-1]["valid"] is True
@@ -34,7 +35,7 @@ def test_csv(capsys):
     assert main(["parse", "-f", "csv", PO]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("file,interchange,group,message_type")
-    assert any(",BEG,BEG03,1,,PO-10045" in l for l in lines)
+    assert any(",BEG,BEG03,1,,PO-10045" in line for line in lines)
 
 
 def test_tree_and_detect(capsys):
@@ -47,8 +48,19 @@ def test_tree_and_detect(capsys):
 def test_validate_exit_codes(capsys, tmp_path):
     assert main(["validate", PO]) == 0
     bad = tmp_path / "bad.edi"
-    bad.write_text(open(PO).read().replace("SE*21*0001", "SE*99*0001"))
+    bad.write_text(Path(PO).read_text().replace("SE*21*0001", "SE*99*0001"))
     assert main(["validate", str(bad)]) == 1
     junk = tmp_path / "junk.txt"
     junk.write_text("not edi")
     assert main(["validate", str(junk)]) == 2
+
+
+def test_serve_rejects_bad_port_cleanly(monkeypatch, capsys):
+    """Regression (found on a real cluster): Kubernetes injects EDIPARSE_PORT=tcp://... for a Service
+    named "ediparse"; the service now reads EDIPARSE_HTTP_PORT and reports bad values without a traceback."""
+    import pytest
+    monkeypatch.setenv("EDIPARSE_PORT", "tcp://10.43.0.1:80")      # ignored now
+    monkeypatch.setenv("EDIPARSE_HTTP_PORT", "tcp://10.43.0.1:80")
+    with pytest.raises(SystemExit) as exc:
+        main(["serve"])
+    assert exc.value.code == 2 and "invalid port" in capsys.readouterr().err

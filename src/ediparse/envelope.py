@@ -209,7 +209,8 @@ class EnvelopeBuilder:
 def _expect(b: EnvelopeBuilder, seg: Segment, n: int, expected: object, what: str) -> None:
     actual = seg.value(n).strip()
     if isinstance(expected, int):
-        ok = actual.isdigit() and int(actual) == expected
+        # isascii(): str.isdigit() accepts characters like '²' that int() rejects (found by fuzzing)
+        ok = actual.isascii() and actual.isdigit() and int(actual) == expected
     else:
         ok = actual == str(expected).strip()
     if not ok:

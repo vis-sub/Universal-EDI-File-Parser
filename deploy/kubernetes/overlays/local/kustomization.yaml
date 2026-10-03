@@ -1,0 +1,28 @@
+# Local clusters (kind, k3s, k3d, Docker Desktop, minikube) using an image built on this machine.
+#
+#   docker build -t universal-edi-parser:local .
+#   # make the image visible to the cluster, e.g.:
+#   #   kind load docker-image universal-edi-parser:local
+#   #   k3d image import universal-edi-parser:local
+#   #   minikube image load universal-edi-parser:local      (Docker Desktop: nothing to do)
+#   kubectl apply -k deploy/kubernetes/overlays/local -n edi
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - name: ghcr.io/vis-sub/universal-edi-parser
+    newName: universal-edi-parser
+    newTag: local
+patches:
+  - target: {kind: Deployment, name: ediparse}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never                      # use the locally loaded image; never pull
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 250m                       # fit on a laptop
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 256Mi

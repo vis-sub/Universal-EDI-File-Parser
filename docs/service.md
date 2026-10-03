@@ -145,7 +145,7 @@ in full, because it is returned as one object.
 | `EDIPARSE_SPOOL_MEMORY_MB` | `16` | Per-request upload memory before spilling to `/tmp` |
 | `EDIPARSE_CHUNK_KB` | `64` | Parser read size |
 | `EDIPARSE_MAX_ISSUES` | `1000` | Cap on issues listed by `/v1/validate` |
-| `EDIPARSE_HOST` / `EDIPARSE_PORT` | `127.0.0.1` / `8080` (`0.0.0.0` in Docker) | Bind address |
+| `EDIPARSE_HTTP_HOST` / `EDIPARSE_HTTP_PORT` | `127.0.0.1` / `8080` (`0.0.0.0` in Docker) | Bind address |
 
 Size `/tmp` to roughly *concurrent requests × max upload*. The compose file mounts a 2 GB tmpfs.
 

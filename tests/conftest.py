@@ -16,7 +16,7 @@ def x12(body: str, version: str = "00501", elem: str = "*", rep: str = "^", comp
     n_sets = sum(1 for s in lines if s.startswith("ST*"))
     lines = [f"GS*PO*SENDER*RECEIVER*20261003*1200*1*X*{version}0", *lines,
              f"GE*{n_sets}*1", f"IEA*1*{ctrl:09d}"]
-    rest = "".join(l.strip().replace("*", elem).replace(":", comp) + seg + nl for l in lines)
+    rest = "".join(s.strip().replace("*", elem).replace(":", comp) + seg + nl for s in lines)
     return isa + seg + nl + rest
 
 

@@ -13,6 +13,8 @@ spec:
     spec:
       # Long uploads/streams get time to finish when a pod is replaced or scaled in.
       terminationGracePeriodSeconds: 300
+      # Don't inject docker-link style env vars (EDIPARSE_PORT=tcp://...) for Services in the namespace.
+      enableServiceLinks: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001

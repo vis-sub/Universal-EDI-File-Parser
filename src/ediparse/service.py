@@ -12,7 +12,7 @@ service doesn't do it.
 """
 from __future__ import annotations
 
-import json
+import contextlib
 import os
 import tempfile
 import zlib
@@ -25,10 +25,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import __version__
-from .dialect import HEADER_RE, EDIDetectionError
+from .dialect import EDIDetectionError
 from .model import InterchangeEvent, MessageEvent
-from .output import Summary, event_to_dict
+from .output import Summary, dumps, event_to_dict
 from .stream import StreamParser
+from .tokenizer import Tokenizer
 
 EVENT_TYPES = ("message", "interchange", "issue", "summary")
 _FLUSH_BYTES = 1 << 16
@@ -65,13 +66,14 @@ class _Upload:
         if dec:
             yield dec.flush()
 
-    def head(self, limit: int = 1 << 20) -> bytes:
+    def head(self, limit: int = 1 << 20) -> tuple[bytes, bool]:
+        """The first ``limit`` decompressed bytes, and whether that is the whole body."""
         out = bytearray()
         for c in self.chunks():
             out += c
-            if len(out) >= limit:
-                break
-        return bytes(out)
+            if len(out) > limit:
+                return bytes(out[:limit]), False
+        return bytes(out), True
 
     def close(self) -> None:
         self.spool.close()
@@ -86,9 +88,9 @@ async def _spool(request: Request, settings: Settings) -> _Upload:
     if encoding not in ("identity", "gzip", "deflate"):
         raise HTTPException(415, f"Unsupported Content-Encoding {encoding!r}; use gzip or none")
     declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > settings.max_upload_bytes:
+    if declared and declared.isascii() and declared.isdigit() and int(declared) > settings.max_upload_bytes:
         raise HTTPException(413, f"Upload exceeds {settings.max_upload_bytes} bytes")
-    spool = tempfile.SpooledTemporaryFile(max_size=settings.spool_memory_bytes)
+    spool = tempfile.SpooledTemporaryFile(max_size=settings.spool_memory_bytes)  # noqa: SIM115 (closed by _Upload)
     size = 0
     try:
         async for chunk in request.stream():
@@ -104,15 +106,28 @@ async def _spool(request: Request, settings: Settings) -> _Upload:
         raise HTTPException(400, "Empty request body")
     upload = _Upload(spool, encoding != "identity", settings.chunk_bytes)
     try:
-        head = upload.head()
+        head, complete = upload.head()
     except zlib.error as e:
         upload.close()
-        raise HTTPException(400, f"Body is not valid {encoding} data: {e}")
-    if not HEADER_RE.search(head.decode("latin-1")):
+        raise HTTPException(400, f"Body is not valid {encoding} data: {e}") from e
+    try:
+        _probe(head, complete)
+    except EDIDetectionError as e:
         upload.close()
-        raise HTTPException(422, "No EDI interchange header found (expected ISA, UNA/UNB, STX or MSH) "
-                                 "in the first 1 MiB of the body")
+        raise HTTPException(422, f"Not usable EDI: {e}") from e
     return upload
+
+
+def _probe(head: bytes, complete: bool) -> None:
+    """Tokenize the start of the body so unusable input is a 422 *before* a 200 stream begins.
+
+    Raises EDIDetectionError if there is no header, or the only headers are unreadable.
+    (Problems further into a large body are reported in-band as records.)
+    """
+    t = Tokenizer(keep_prefix=False)
+    t.feed(head.decode("utf-8", "surrogateescape"))
+    if complete:
+        t.close()
 
 
 def _events(upload: _Upload, encoding: str) -> Iterator:
@@ -196,7 +211,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Batch lines into ~64 KiB writes: one thread hop per write, not per document.
             buf, size, first = [b"["] if format == "json" else [], 0, True
             for rec in records():
-                chunk = _frame(json.dumps(rec, ensure_ascii=False), format, first)
+                chunk = _frame(dumps(rec), format, first)
                 first = False
                 buf.append(chunk)
                 size += len(chunk)
@@ -209,7 +224,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 yield b"".join(buf)
 
         media = "application/x-ndjson" if format == "ndjson" else "application/json"
-        return StreamingResponse(body(), media_type=media)  # sync generator runs in a worker thread
+        gen = body()  # a sync generator: Starlette runs each step in a worker thread
+        return _StreamingResponse(gen, cleanup=lambda: _release(gen, upload), media_type=media)
 
     @app.post("/v1/validate", tags=["parse"], summary="Check envelopes and control totals")
     async def validate(request: Request, encoding: str = "auto") -> JSONResponse:
@@ -236,7 +252,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             return JSONResponse(await run_in_threadpool(run))
         except EDIDetectionError as e:
-            raise HTTPException(422, str(e))
+            raise HTTPException(422, str(e)) from e
 
     @app.post("/v1/detect", tags=["parse"], summary="Identify standard, version and delimiters")
     async def detect(request: Request) -> JSONResponse:
@@ -251,9 +267,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             return JSONResponse({"interchanges": await run_in_threadpool(run)})
         except EDIDetectionError as e:
-            raise HTTPException(422, str(e))
+            raise HTTPException(422, str(e)) from e
 
     return app
+
+
+class _StreamingResponse(StreamingResponse):
+    """StreamingResponse that always runs ``cleanup``: on completion, on error, and on client disconnect.
+
+    Without this, a client hanging up mid-stream left the generator suspended, so the spooled upload
+    was never closed and its /tmp space was never released (found by disconnect testing).
+    """
+
+    def __init__(self, content, cleanup, **kwargs):
+        super().__init__(content, **kwargs)
+        self._cleanup = cleanup
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._cleanup()
+
+
+def _release(gen, upload: _Upload) -> None:
+    upload.close()  # frees the spool even if the generator is still running in a worker thread
+    # ValueError = "generator already executing": it stops on its next read of the closed spool.
+    with contextlib.suppress(ValueError):
+        gen.close()
 
 
 def _frame(line: str, format: str, first: bool) -> bytes:

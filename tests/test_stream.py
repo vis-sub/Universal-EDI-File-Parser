@@ -64,7 +64,17 @@ def test_latin1_fallback_mid_stream():
     events = list(stream(data, chunk_size=16))
     msg = events[0].message
     assert msg.segments[0].value(2) == "CAFÉ"
-    assert any(i.code == "encoding_fallback" for i in msg.issues + events[-1].interchange.issues)
+    assert [i.code for i in msg.issues] == ["invalid_utf8"]
+
+
+def test_invalid_utf8_is_chunking_independent():
+    """Regression (found by fuzzing): results used to depend on where the first bad byte fell."""
+    data = x12("ST*850*0001~N1*ST*\u0234 OK~N1*ST*CAF\xc9~SE*4*0001").encode("utf-8").replace(b"\xc3\x89", b"\xc9")
+    whole = dicts(stream(data, chunk_size=len(data)))
+    for size in (1, 5, 16, 50):
+        assert dicts(stream(data, chunk_size=size)) == whole
+    segs = whole[0]["message"]["segments"]
+    assert segs[0]["elements"]["N102"] == "\u0234 OK" and segs[1]["elements"]["N102"] == "CAF\xc9"
 
 
 def test_file_object_and_iterable_sources():
@@ -115,3 +125,16 @@ def test_memory_is_flat_for_large_input():
     tracemalloc.stop()
     assert count == n and errors == 0
     assert peak < 1_500_000, f"peak {peak / 1e6:.1f} MB"
+
+
+def test_skipped_region_does_not_change_notices_by_chunking():
+    """Regression (found by fuzzing): invalid bytes in a skipped (damaged) region used to raise an
+    invalid-UTF-8 notice only when the skip landed in the same chunk as the previous segment."""
+    good = x12("ST*850*0001~SE*2*0001", ctrl=1)
+    bad = x12("ST*850*0002~N1*ST*CAF\xc9~SE*3*0002", ctrl=2)
+    data = (good + bad[:105] + "Z" + bad[106:]).encode("latin-1")
+    whole = dicts(stream(data, chunk_size=len(data)))
+    for size in (1, 3, 17, 64):
+        assert dicts(stream(data, chunk_size=size)) == whole
+    codes = [i["code"] for rec in whole for i in rec.get("issues", [])] + [r.get("code") for r in whole]
+    assert "bad_header" in codes and "invalid_utf8" not in codes

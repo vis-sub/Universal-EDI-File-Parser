@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 
+from .textutil import display
+
 X12, EDIFACT, TRADACOMS, HL7 = "X12", "EDIFACT", "TRADACOMS", "HL7"
 
 _HL7_ESCAPES = {"F": "element", "S": "component", "T": "subcomponent", "R": "repetition", "E": "escape"}
@@ -68,7 +70,7 @@ class Dialect:
         return value
 
     def describe(self) -> dict:
-        return {k: v for k, v in {
+        return {k: display(v) if isinstance(v, str) else v for k, v in {
             "standard": self.standard, "version": self.version, "element": self.element,
             "component": self.component, "segment": self.segment, "repetition": self.repetition,
             "release": self.release, "tag_separator": self.tag_separator,
@@ -81,7 +83,8 @@ TRADACOMS_DIALECT = Dialect(TRADACOMS, "+", ":", "'", release="?", tag_separator
 # Where an interchange can start. Used to skip junk (mail headers, banners) before the first one.
 # Note: str.isspace()/\s treat \x1c-\x1f as whitespace, but X12 senders use them as delimiters.
 _BLANK = " \t\r\n"
-HEADER_RE = re.compile(r"ISA[^\w \t\r\n]|UNA|UNB\+|STX=|(?:MSH|FHS|BHS)[^\w \t\r\n]")
+# The lookbehind stops text such as "VISA*" inside data being taken for an ISA header.
+HEADER_RE = re.compile(r"(?<![A-Za-z0-9])(?:ISA[^\w \t\r\n]|UNA|UNB\+|STX=|(?:MSH|FHS|BHS)[^\w \t\r\n])")
 
 
 def _is_delimiter_char(c: str) -> bool:
@@ -97,14 +100,14 @@ def x12_from_isa(text: str, pos: int) -> tuple[Dialect, list[str]]:
     for _ in range(16):
         i = text.find(elem, i + 1)
         if i == -1:
-            raise TruncatedHeader(f"Truncated ISA segment at offset {pos}")
+            raise TruncatedHeader("Truncated ISA segment")
     if i + 2 >= len(text):
-        raise TruncatedHeader(f"Truncated ISA segment at offset {pos}")
+        raise TruncatedHeader("Truncated ISA segment")
     comp, term = text[i + 1], text[i + 2]
     if term.isalnum():
-        raise EDIDetectionError(f"Invalid X12 segment terminator {term!r} at offset {i + 2}")
+        raise EDIDetectionError(f"Invalid X12 segment terminator {term!r} in ISA")
     fields = text[pos:i].split(elem)  # ['ISA', ISA01 .. ISA15]
-    version, isa11 = fields[12], fields[11]
+    version, isa11 = display(fields[12]), fields[11]
     warnings = []
     if i - pos != 103:
         warnings.append(f"ISA is {i - pos + 3} characters, not the standard 106 (padding trimmed or extended)")
@@ -120,7 +123,7 @@ def x12_from_isa(text: str, pos: int) -> tuple[Dialect, list[str]]:
 def edifact_from_una(text: str, pos: int) -> Dialect:
     s = text[pos + 3:pos + 9]
     if len(s) < 6:
-        raise TruncatedHeader(f"Truncated UNA segment at offset {pos}")
+        raise TruncatedHeader("Truncated UNA segment")
     comp, elem, _decimal, rel, rep, term = s
     return Dialect(EDIFACT, elem, comp, term,
                    repetition=None if rep == " " else rep,
@@ -143,7 +146,7 @@ def hl7_from_header(text: str, pos: int, final: bool = True) -> Dialect:
     field = text[pos + 3]
     end = text.find(field, pos + 4)
     if end == -1 and not final:
-        raise TruncatedHeader(f"Truncated {text[pos:pos + 3]} segment at offset {pos}")
+        raise TruncatedHeader(f"Truncated {text[pos:pos + 3]} segment")
     enc = text[pos + 4:end if end != -1 else pos + 8]
     enc = (enc + "^~\\&")[:4] if len(enc) < 4 else enc
     return Dialect(HL7, field, enc[0], "\r", repetition=enc[1], escape=enc[2], subcomponent=enc[3])

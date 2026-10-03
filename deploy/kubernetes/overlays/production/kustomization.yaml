@@ -1,0 +1,13 @@
+# Production: the published image at a pinned release tag.
+#   kubectl apply -k deploy/kubernetes/overlays/production -n edi
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - name: ghcr.io/vis-sub/universal-edi-parser
+    newTag: v0.2.0            # pin a release; avoid :latest in production
+# Uncomment to also create the ingress (edit host/TLS and add authentication first):
+# resources:
+#   - ../../base
+#   - ../../base/ingress.example.yaml

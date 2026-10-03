@@ -26,7 +26,7 @@ boundaries (`ISA`…`IEA`) on the client and send the pieces concurrently.
 | Option | Good for | Scaling | Included here |
 |---|---|---|---|
 | **Docker Compose + nginx** | One server, dev/test, small teams | `--scale ediparse=N` on one host | `docker-compose.yml`, `deploy/nginx/` |
-| **Kubernetes** (EKS, GKE, AKS, on-prem) | Teams already running Kubernetes | HPA autoscaling on CPU across nodes | `deploy/kubernetes/` |
+| **Kubernetes** (EKS, GKE, AKS, on-prem) | Teams already running Kubernetes | HPA autoscaling on CPU across nodes | `deploy/kubernetes/` (base + overlays) |
 | **AWS ECS on Fargate** + ALB | AWS without Kubernetes | ECS service auto scaling | recipe below |
 | **Google Cloud Run** | Zero-ops, scale to zero, bursty traffic | Automatic, per request | recipe below (mind the size limit) |
 | **Azure Container Apps** | Azure without Kubernetes | Built-in HTTP/CPU scaling rules | same container; see notes |
@@ -61,7 +61,7 @@ otherwise fall back to 8080.
 
 ```bash
 kubectl create namespace edi
-kubectl apply -k deploy/kubernetes -n edi
+kubectl apply -k deploy/kubernetes/overlays/production -n edi
 kubectl -n edi port-forward svc/ediparse 8080:80     # try it locally
 ```
 
