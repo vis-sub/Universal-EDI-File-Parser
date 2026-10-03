@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ediparse
+  labels: {app.kubernetes.io/name: ediparse}
+spec:
+  selector: {app.kubernetes.io/name: ediparse}
+  ports:
+    - {name: http, port: 80, targetPort: http}

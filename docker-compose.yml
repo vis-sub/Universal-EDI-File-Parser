@@ -1,14 +1,32 @@
-# docker compose up --build    ->  http://localhost:8080/docs
+# Local / single-host deployment with a load balancer in front of N parser instances.
+#
+#   docker compose up --build -d                  # 2 instances behind nginx on http://localhost:8080
+#   docker compose up -d --scale ediparse=4       # scale out; nginx picks new instances up within ~10s
+#
+# Total parser processes = instances x WEB_CONCURRENCY. Aim for about one per CPU core.
 services:
   ediparse:
     build: .
     image: universal-edi-parser:latest
-    ports:
-      - "${EDIPARSE_HOST_PORT:-8080}:8080"
+    expose:
+      - "8080"
     environment:
-      WEB_CONCURRENCY: "2"              # worker processes; roughly one per CPU core
+      WEB_CONCURRENCY: "2"              # worker processes per instance
       EDIPARSE_MAX_UPLOAD_MB: "1024"     # reject larger uploads with 413
       EDIPARSE_SPOOL_MEMORY_MB: "16"     # per-request upload buffer before spilling to /tmp
     tmpfs:
-      - /tmp:size=2g                     # spooled uploads; size it to concurrency x max upload
+      - /tmp:size=2g                     # spooled uploads; size to concurrent requests x typical upload
+    deploy:
+      replicas: 2
+    restart: unless-stopped
+
+  lb:
+    image: nginx:1.27-alpine
+    ports:
+      - "${EDIPARSE_HOST_PORT:-8080}:8080"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      ediparse:
+        condition: service_healthy
     restart: unless-stopped

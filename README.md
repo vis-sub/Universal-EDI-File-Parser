@@ -27,8 +27,12 @@ curl --data-binary @samples/x12/5010/850_purchase_order.edi http://localhost:808
 {"type": "summary", "interchanges": 1, "messages": 1, "errors": 0, "warnings": 0, "valid": true}
 ```
 
-Interactive API docs are at http://localhost:8080/docs. See **[docs/service.md](docs/service.md)** for the API,
-record format, configuration, deployment, and client examples.
+Compose starts nginx in front of 2 parser instances. Scale out with `docker compose up -d --scale ediparse=4`.
+Interactive API docs are at http://localhost:8080/docs.
+
+- **[docs/service.md](docs/service.md)**: API, record format, errors, configuration, client examples
+- **[docs/deployment.md](docs/deployment.md)**: scaling, and running on Compose, Kubernetes (`deploy/kubernetes`), ECS,
+  Cloud Run, Container Apps or VMs, or as a library in queue workers or functions
 
 ## Library
 
@@ -80,7 +84,7 @@ ediparse serve --port 8080                   # run the HTTP service
 | Incremental tokenizer → segments → elements → repeats → components | `tokenizer.py`, `model.py` | no |
 | Envelope builder: interchange → group → message, control totals, events | `envelope.py`, `stream.py` | no |
 | JSON / NDJSON / CSV / tree output | `output.py`, `cli.py` | no |
-| HTTP service | `service.py` | no |
+| HTTP service (+ nginx / Kubernetes deployment) | `service.py`, `deploy/` | no |
 | Loop resolution and field meanings | *roadmap* | dictionaries + heuristics |
 
 ## Reference material
