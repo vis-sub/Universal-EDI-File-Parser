@@ -20,8 +20,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/vis-sub/universal-edi-parser"
-Issues = "https://github.com/vis-sub/universal-edi-parser/issues"
+Homepage = "https://github.com/vis-sub/Universal-EDI-File-Parser"
+Issues = "https://github.com/vis-sub/Universal-EDI-File-Parser/issues"
 
 [project.optional-dependencies]
 service = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]

@@ -13,8 +13,8 @@ Run the service locally, parse your first files, and try the library and CLI. Th
 ## 1. Start the service
 
 ```bash
-git clone https://github.com/vis-sub/universal-edi-parser.git
-cd universal-edi-parser
+git clone https://github.com/vis-sub/Universal-EDI-File-Parser.git
+cd Universal-EDI-File-Parser
 make up        # builds the image; starts nginx + 2 parser instances on http://localhost:8080
 make smoke     # 11 end-to-end checks against the running service
 ```

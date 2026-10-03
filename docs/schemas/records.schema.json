@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/vis-sub/universal-edi-parser/docs/schemas/records.schema.json",
+  "$id": "https://github.com/vis-sub/Universal-EDI-File-Parser/docs/schemas/records.schema.json",
   "title": "ediparse stream record",
   "description": "One line of NDJSON from POST /v1/parse or `ediparse parse` (CLI records also carry a \"file\" field). See docs/output-format.md.",
   "oneOf": [

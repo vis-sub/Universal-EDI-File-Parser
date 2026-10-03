@@ -69,7 +69,7 @@ k8s-validate:  ## Validate both overlays against Kubernetes API schemas (uses Do
 	  -strict -summary /t/ediparse-k8s-local.yaml /t/ediparse-k8s-production.yaml /k/ingress.example.yaml
 
 k8s-local:  ## Build the image and deploy to the current kubectl context with the local overlay
-	docker build -t universal-edi-parser:local .
+	docker build -t universal-edi-file-parser:local .
 	kubectl create namespace edi --dry-run=client -o yaml | kubectl apply -f -
 	kubectl apply -k deploy/kubernetes/overlays/local -n edi
 	kubectl -n edi rollout status deploy/ediparse --timeout=180s

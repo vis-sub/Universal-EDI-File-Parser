@@ -22,7 +22,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: ediparse
-          image: ghcr.io/vis-sub/universal-edi-parser:latest   # overridden by kustomization.yaml `images:`
+          image: ghcr.io/vis-sub/universal-edi-file-parser:latest   # overridden by kustomization.yaml `images:`
           ports:
             - {name: http, containerPort: 8080}
           env:

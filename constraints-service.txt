@@ -1,5 +1,5 @@
 # Pinned versions for the service image (used by the Dockerfile for reproducible builds).
-# Refresh: docker run --rm --entrypoint pip universal-edi-parser freeze --exclude ediparse
+# Refresh: docker run --rm --entrypoint pip universal-edi-file-parser freeze --exclude ediparse
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1

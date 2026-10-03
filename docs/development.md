@@ -62,7 +62,7 @@ the JSON Schema and to the table in [output-format.md](output-format.md#issue-co
 
 1. Update `CHANGELOG.md` and the version in `pyproject.toml` and `src/ediparse/__init__.py`.
 2. `make test lint`, `make up smoke`, `make k8s-validate`.
-3. Tag: `git tag v0.x.y && git push --tags`. `.github/workflows/release.yml` builds a multi-arch image and pushes `ghcr.io/vis-sub/universal-edi-parser:v0.x.y` (and `:latest` from `main`).
+3. Tag: `git tag v0.x.y && git push --tags`. `.github/workflows/release.yml` builds a multi-arch image and pushes `ghcr.io/vis-sub/universal-edi-file-parser:v0.x.y` (and `:latest` from `main`).
 4. Bump `newTag` in `deploy/kubernetes/overlays/production/kustomization.yaml`.
 
 ## Regenerating samples

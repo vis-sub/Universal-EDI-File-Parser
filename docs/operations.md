@@ -131,7 +131,7 @@ ediparse -f tree problem.edi         # structure outline
 **Refresh pinned dependencies** (monthly, or when a CVE lands)
 
 ```bash
-docker build -t universal-edi-parser . && \
-docker run --rm --entrypoint pip universal-edi-parser freeze --exclude ediparse   # compare / update constraints-service.txt
+docker build -t universal-edi-file-parser . && \
+docker run --rm --entrypoint pip universal-edi-file-parser freeze --exclude ediparse   # compare / update constraints-service.txt
 make test && make up && make smoke
 ```

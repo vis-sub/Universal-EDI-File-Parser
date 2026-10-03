@@ -1,6 +1,6 @@
 # Universal EDI Parser service
-#   docker build -t universal-edi-parser .
-#   docker run --rm -p 8080:8080 universal-edi-parser
+#   docker build -t universal-edi-file-parser .
+#   docker run --rm -p 8080:8080 universal-edi-file-parser
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

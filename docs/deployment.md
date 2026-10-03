@@ -40,7 +40,7 @@ Rough guide:
 - **On GCP with mostly small files:** Cloud Run.
 - **Files arrive in S3/GCS or on a queue and nobody needs to call an API:** skip HTTP and use the library in workers.
 
-All the container options use the published image `ghcr.io/vis-sub/universal-edi-parser`, built by
+All the container options use the published image `ghcr.io/vis-sub/universal-edi-file-parser`, built by
 `.github/workflows/release.yml`, or an image you build from the `Dockerfile`.
 
 > **Published image availability.** `:latest` is built on every push to `main`. Version tags such as `:v0.3.0` exist
@@ -84,8 +84,8 @@ deploy/kubernetes/
 apply the local overlay. `make k8s-local` does the build and apply for the current `kubectl` context.
 
 ```bash
-docker build -t universal-edi-parser:local .
-kind load docker-image universal-edi-parser:local      # or: k3d image import / minikube image load (Docker Desktop: skip)
+docker build -t universal-edi-file-parser:local .
+kind load docker-image universal-edi-file-parser:local      # or: k3d image import / minikube image load (Docker Desktop: skip)
 kubectl apply -k deploy/kubernetes/overlays/local -n edi
 ```
 
@@ -131,9 +131,9 @@ Cloud Run pulls from Artifact Registry (or Docker Hub), not from ghcr.io. Push t
 or create an Artifact Registry *remote repository* that proxies ghcr.io.
 
 ```bash
-docker build -t REGION-docker.pkg.dev/PROJECT/REPO/universal-edi-parser:v0.3.0 . && \
-  docker push REGION-docker.pkg.dev/PROJECT/REPO/universal-edi-parser:v0.3.0
-gcloud run deploy ediparse --image REGION-docker.pkg.dev/PROJECT/REPO/universal-edi-parser:v0.3.0 \
+docker build -t REGION-docker.pkg.dev/PROJECT/REPO/universal-edi-file-parser:v0.3.0 . && \
+  docker push REGION-docker.pkg.dev/PROJECT/REPO/universal-edi-file-parser:v0.3.0
+gcloud run deploy ediparse --image REGION-docker.pkg.dev/PROJECT/REPO/universal-edi-file-parser:v0.3.0 \
   --port 8080 --cpu 2 --memory 2Gi --concurrency 4 --timeout 3600 \
   --set-env-vars WEB_CONCURRENCY=2 --no-allow-unauthenticated
 ```
@@ -150,7 +150,7 @@ scale rule. Check the ingress request-size and timeout limits for your plan agai
 
 ### VMs
 
-On each VM, run `docker run -d -p 8080:8080 -e WEB_CONCURRENCY=$(nproc) ghcr.io/vis-sub/universal-edi-parser`. Or
+On each VM, run `docker run -d -p 8080:8080 -e WEB_CONCURRENCY=$(nproc) ghcr.io/vis-sub/universal-edi-file-parser`. Or
 use `pip install ".[service]"` with a systemd unit running `ediparse serve --host 0.0.0.0`. Put the VMs behind your
 load balancer with the settings from "How scaling works".
 

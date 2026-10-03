@@ -10,5 +10,5 @@ resources:
   - hpa.yaml
   - pdb.yaml
 images:
-  - name: ghcr.io/vis-sub/universal-edi-parser
+  - name: ghcr.io/vis-sub/universal-edi-file-parser
     newTag: latest           # pin a release tag (e.g. v0.3.0) for production

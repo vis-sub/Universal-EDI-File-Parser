@@ -7,7 +7,7 @@
 services:
   ediparse:
     build: .
-    image: universal-edi-parser:latest
+    image: universal-edi-file-parser:latest
     expose:
       - "8080"
     environment:

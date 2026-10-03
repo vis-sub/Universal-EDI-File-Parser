@@ -1,6 +1,6 @@
 # Publishes the service image to GitHub Container Registry:
-#   ghcr.io/<owner>/universal-edi-parser:latest   (every push to main)
-#   ghcr.io/<owner>/universal-edi-parser:v1.2.3   (tags like v1.2.3)
+#   ghcr.io/<owner>/universal-edi-file-parser:latest   (every push to main)
+#   ghcr.io/<owner>/universal-edi-file-parser:v1.2.3   (tags like v1.2.3)
 # After the first run, make the package public under GitHub > Packages > Package settings
 # if other teams should pull it without logging in.
 name: Publish image
@@ -29,7 +29,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository_owner }}/universal-edi-file-parser  # lowercase: Docker image names must be
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern=v{{version}}

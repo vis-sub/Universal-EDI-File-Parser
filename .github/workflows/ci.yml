@@ -25,16 +25,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t universal-edi-parser .
+      - run: docker build -t universal-edi-file-parser .
       - name: Smoke test the container
         run: |
-          docker run -d --name edi -p 8080:8080 universal-edi-parser
+          docker run -d --name edi -p 8080:8080 universal-edi-file-parser
           for _ in $(seq 30); do curl -fs localhost:8080/healthz && break; sleep 1; done
           scripts/smoke-test.sh http://localhost:8080
       - name: Scan image for fixable HIGH/CRITICAL vulnerabilities
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
-            --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 universal-edi-parser
+            --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 universal-edi-file-parser
 
   deploy-config:
     runs-on: ubuntu-latest
