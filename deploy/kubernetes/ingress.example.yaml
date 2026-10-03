@@ -1,0 +1,22 @@
+# Optional: expose the service through ingress-nginx. Not included in kustomization.yaml;
+# copy, set the host/TLS, and add authentication (the service has none built in).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ediparse
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1g"          # >= EDIPARSE_MAX_UPLOAD_MB
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"         # stream NDJSON through
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off" # the service spools uploads itself
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: edi.example.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: ediparse, port: {name: http}}

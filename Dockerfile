@@ -17,6 +17,6 @@ RUN pip install ".[service]" && useradd --create-home --uid 10001 app
 
 USER app
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --start-interval=2s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"
 CMD ["ediparse", "serve"]

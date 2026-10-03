@@ -14,7 +14,7 @@ your app ──POST raw EDI──▶ ediparse ──NDJSON──▶ {"type":"mes
 ## Start it
 
 ```bash
-docker compose up --build                 # http://localhost:8080, interactive docs at /docs
+docker compose up --build                 # nginx + 2 instances on http://localhost:8080, docs at /docs
 # or, without Docker:
 pip install -e ".[service]" && ediparse serve --host 0.0.0.0 --port 8080
 ```
@@ -140,7 +140,7 @@ in full, because it is returned as one object.
 
 | Environment variable | Default | Purpose |
 |---|---|---|
-| `WEB_CONCURRENCY` | `1` (compose: `2`) | Worker processes. Parsing is CPU-bound, so use about one per core |
+| `WEB_CONCURRENCY` | `1` (compose/k8s: `2`) | Worker processes per instance. Parsing is CPU-bound, so use about one per core |
 | `EDIPARSE_MAX_UPLOAD_MB` | `1024` | Larger uploads are rejected with `413` |
 | `EDIPARSE_SPOOL_MEMORY_MB` | `16` | Per-request upload memory before spilling to `/tmp` |
 | `EDIPARSE_CHUNK_KB` | `64` | Parser read size |
@@ -151,15 +151,9 @@ Size `/tmp` to roughly *concurrent requests × max upload*. The compose file mou
 
 ## Deploying
 
-- **Scaling:** the service is stateless. Run more replicas behind any load balancer and point health checks at `/healthz`.
-- **Reverse proxies:** by default a proxy can buffer the whole response and hide the streaming. For nginx:
-  `proxy_buffering off; proxy_request_buffering off; client_max_body_size 1g; proxy_read_timeout 600s;`
-- **Security:** there is **no authentication built in**. Run the service on a private network, or behind your API
-  gateway or ingress with authentication and TLS.
-- **Sensitive data (e.g. HIPAA PHI in 837/835/834 files):**
-  - Request bodies are never logged.
-  - Uploads exist only in the per-request spool and are deleted when the response ends.
-  - Keep `/tmp` on tmpfs or encrypted storage.
+See **[deployment.md](deployment.md)**. It covers how scaling works, Docker Compose with a load balancer, Kubernetes
+manifests, ECS, Cloud Run, Container Apps, VMs, running the library in workers or functions with no service, parallel
+clients, and a security checklist.
 
 ## Roadmap
 

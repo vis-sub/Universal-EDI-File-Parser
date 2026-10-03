@@ -1,0 +1,17 @@
+# Requires metrics-server (installed by default on EKS/GKE/AKS add-ons; `kubectl top pods` should work).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ediparse
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: ediparse}
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 70}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300   # don't flap while long batches are in flight
