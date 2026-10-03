@@ -1,0 +1,492 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vis-sub/universal-edi-parser/docs/schemas/records.schema.json",
+  "title": "ediparse stream record",
+  "description": "One line of NDJSON from POST /v1/parse or `ediparse parse` (CLI records also carry a \"file\" field). See docs/output-format.md.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/message"
+    },
+    {
+      "$ref": "#/$defs/interchange"
+    },
+    {
+      "$ref": "#/$defs/issueRecord"
+    },
+    {
+      "$ref": "#/$defs/summary"
+    },
+    {
+      "$ref": "#/$defs/error"
+    }
+  ],
+  "$defs": {
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "issue": {
+      "type": "object",
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "code": {
+          "enum": [
+            "bad_header",
+            "control_mismatch",
+            "empty_segment",
+            "invalid_utf8",
+            "isa_format",
+            "leading_data",
+            "missing_trailer",
+            "no_group",
+            "no_interchange",
+            "orphan_una",
+            "outside_message",
+            "unmatched_segment",
+            "unterminated_segment",
+            "unusual_tag",
+            "wrapped_lines"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "segment_index": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "value": {
+      "description": "Plain value, list of components (composite), or repeated element.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "repeats"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repeats": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "segment": {
+      "type": "object",
+      "required": [
+        "tag",
+        "index",
+        "elements"
+      ],
+      "properties": {
+        "tag": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0-based position of the segment in the input"
+        },
+        "elements": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/value"
+          },
+          "description": "Keyed by positional ID (BEG03, NM103, PID-5); empty elements omitted"
+        }
+      },
+      "additionalProperties": false
+    },
+    "nullableSegment": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/segment"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "interchangeSummary": {
+      "type": "object",
+      "required": [
+        "standard",
+        "version",
+        "control",
+        "sender",
+        "receiver",
+        "date"
+      ],
+      "properties": {
+        "standard": {
+          "enum": [
+            "X12",
+            "EDIFACT",
+            "TRADACOMS",
+            "HL7"
+          ]
+        },
+        "version": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "control": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "sender": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "receiver": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "date": {
+          "$ref": "#/$defs/nullableString"
+        }
+      },
+      "additionalProperties": false
+    },
+    "message": {
+      "type": "object",
+      "required": [
+        "type",
+        "sequence",
+        "interchange",
+        "group",
+        "message",
+        "valid",
+        "issues"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "type": {
+          "const": "message"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "interchange": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/interchangeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "group": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "control",
+                "version"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "$ref": "#/$defs/nullableString"
+                },
+                "control": {
+                  "$ref": "#/$defs/nullableString"
+                },
+                "version": {
+                  "$ref": "#/$defs/nullableString"
+                }
+              }
+            }
+          ]
+        },
+        "message": {
+          "type": "object",
+          "required": [
+            "type",
+            "control",
+            "version",
+            "segment_count"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "control": {
+              "type": "string"
+            },
+            "version": {
+              "$ref": "#/$defs/nullableString"
+            },
+            "segment_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "header": {
+              "$ref": "#/$defs/segment"
+            },
+            "trailer": {
+              "$ref": "#/$defs/nullableSegment"
+            },
+            "segments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/segment"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "interchange": {
+      "type": "object",
+      "required": [
+        "type",
+        "standard",
+        "version",
+        "control",
+        "sender",
+        "receiver",
+        "date",
+        "delimiters",
+        "groups",
+        "messages",
+        "valid",
+        "issues"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "type": {
+          "const": "interchange"
+        },
+        "standard": {
+          "enum": [
+            "X12",
+            "EDIFACT",
+            "TRADACOMS",
+            "HL7"
+          ]
+        },
+        "version": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "control": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "sender": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "receiver": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "date": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "delimiters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "groups": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "messages": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        },
+        "service_string": {
+          "$ref": "#/$defs/nullableSegment"
+        },
+        "header": {
+          "$ref": "#/$defs/nullableSegment"
+        },
+        "trailer": {
+          "$ref": "#/$defs/nullableSegment"
+        },
+        "loose_segments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/segment"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "issueRecord": {
+      "type": "object",
+      "required": [
+        "type",
+        "severity",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "const": "issue"
+        },
+        "file": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "code": {
+          "enum": [
+            "bad_header",
+            "control_mismatch",
+            "empty_segment",
+            "invalid_utf8",
+            "isa_format",
+            "leading_data",
+            "missing_trailer",
+            "no_group",
+            "no_interchange",
+            "orphan_una",
+            "outside_message",
+            "unmatched_segment",
+            "unterminated_segment",
+            "unusual_tag",
+            "wrapped_lines"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "segment_index": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "type",
+        "interchanges",
+        "messages",
+        "errors",
+        "warnings",
+        "valid"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "type": {
+          "const": "summary"
+        },
+        "interchanges": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "messages": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "type",
+        "message",
+        "error"
+      ],
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "message": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

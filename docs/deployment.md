@@ -10,7 +10,7 @@ send files in parallel.
 - **The unit of work is one file per request.** A request is handled by one parser process from start to finish.
 - **Throughput scales with total parser processes** = instances × `WEB_CONCURRENCY`. Aim for about one process per CPU core.
 - **Memory per process** is about 60 MB baseline, plus up to `EDIPARSE_SPOOL_MEMORY_MB` (16 MB) per in-flight upload, plus the largest single document being parsed.
-- **Disk:** uploads larger than the spool limit spill to `/tmp`. Size `/tmp` to *concurrent requests × typical upload*.
+- **Disk:** uploads larger than the spool limit spill to `/tmp`. Size `/tmp` to *concurrent requests × typical upload*. If `/tmp` is a tmpfs, those bytes count as container memory ([sizing](operations.md#sizing)).
 - **Load balancing** needs nothing special:
   - Round-robin, no sticky sessions.
   - Health check on `GET /healthz`.
@@ -48,9 +48,9 @@ All the container options use the published image `ghcr.io/vis-sub/universal-edi
 ### Docker Compose (single host)
 
 ```bash
-docker compose up --build -d                 # nginx on :8080 in front of 2 instances x 2 workers
-docker compose up -d --scale ediparse=4      # scale out; nginx picks up new instances within ~10s
-docker compose logs -f ediparse              # see requests spread across instances
+make up                                      # = docker compose up --build -d, then waits for health
+make scale N=4                               # = docker compose up -d --scale ediparse=4
+make logs                                    # see requests spread across instances
 ```
 
 nginx re-resolves the instances through Docker DNS, so scaling up or down needs no restart. If you override the host
@@ -65,11 +65,35 @@ kubectl apply -k deploy/kubernetes/overlays/production -n edi
 kubectl -n edi port-forward svc/ediparse 8080:80     # try it locally
 ```
 
-What's included:
+Layout:
+
+```
+deploy/kubernetes/
+  base/                 Deployment, Service, HPA, PDB (+ ingress.example.yaml)
+  overlays/production/  published image at a pinned tag
+  overlays/local/       locally built image (imagePullPolicy: Never), smaller CPU/memory requests
+```
+
+**Local cluster** (kind, k3s, k3d, Docker Desktop, minikube): build the image, make it visible to the cluster, then
+apply the local overlay. `make k8s-local` does the build and apply for the current `kubectl` context.
+
+```bash
+docker build -t universal-edi-parser:local .
+kind load docker-image universal-edi-parser:local      # or: k3d image import / minikube image load (Docker Desktop: skip)
+kubectl apply -k deploy/kubernetes/overlays/local -n edi
+```
+
+These manifests were tested on k3s v1.34:
+- pods run under the full security context
+- a rolling restart during six in-flight 47 MB streams completed all six
+- under load, the HPA scaled 2 → 6 → 10 pods with no failed requests
+
+What's included in `base/`:
 
 | File | What it does |
 |---|---|
 | `deployment.yaml` | 2 replicas, `WEB_CONCURRENCY=2` with a 2-CPU limit, readiness/liveness on `/healthz` |
+| | `enableServiceLinks: false`, so Kubernetes doesn't inject `EDIPARSE_PORT=tcp://…`-style variables |
 | | Non-root user, read-only root filesystem, all capabilities dropped |
 | | `/tmp` as a 4 Gi `emptyDir` for upload spooling |
 | | 300 s termination grace period plus a `preStop` delay, so in-flight streams finish during rollouts and scale-in |
@@ -78,7 +102,7 @@ What's included:
 | `pdb.yaml` | Keeps at least one pod during node drains |
 | `ingress.example.yaml` | ingress-nginx with buffering off, a 1 GB body limit and 600 s timeouts. Add authentication and TLS before exposing it |
 
-Pin a release tag in `kustomization.yaml` (`newTag: v0.2.0`) for production. If you raise `WEB_CONCURRENCY`, raise
+Pin the release tag in `overlays/production/kustomization.yaml` (`newTag`). If you raise `WEB_CONCURRENCY`, raise
 the CPU limit to match.
 
 ### AWS ECS on Fargate
