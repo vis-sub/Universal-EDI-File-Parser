@@ -10,7 +10,7 @@ send files in parallel.
 - **The unit of work is one file per request.** A request is handled by one parser process from start to finish.
 - **Throughput scales with total parser processes** = instances × `WEB_CONCURRENCY`. Aim for about one process per CPU core.
 - **Memory per process** is about 60 MB baseline, plus up to `EDIPARSE_SPOOL_MEMORY_MB` (16 MB) per in-flight upload, plus the largest single document being parsed.
-- **Disk:** uploads larger than the spool limit spill to `/tmp`. Size `/tmp` to *concurrent requests × typical upload*. If `/tmp` is a tmpfs, those bytes count as container memory ([sizing](operations.md#sizing)).
+- **Disk:** uploads larger than the spool limit spill to `/tmp`. Size `/tmp` to *concurrent requests × largest expected upload*; when it fills, uploads get `507`. If `/tmp` is a tmpfs, those bytes count as container memory ([sizing](operations.md#sizing)).
 - **Load balancing** needs nothing special:
   - Round-robin, no sticky sessions.
   - Health check on `GET /healthz`.
@@ -43,6 +43,11 @@ Rough guide:
 All the container options use the published image `ghcr.io/vis-sub/universal-edi-parser`, built by
 `.github/workflows/release.yml`, or an image you build from the `Dockerfile`.
 
+> **Published image availability.** `:latest` is built on every push to `main`. Version tags such as `:v0.3.0` exist
+> only after that tag is pushed to GitHub. New GHCR packages may be private: make it public under the repository's
+> **Packages → Package settings** so clusters can pull it without credentials. Until then, build locally (`make
+> k8s-local`, or `docker build`) and push to your own registry.
+
 ---
 
 ### Docker Compose (single host)
@@ -54,7 +59,8 @@ make logs                                    # see requests spread across instan
 ```
 
 nginx re-resolves the instances through Docker DNS, so scaling up or down needs no restart. If you override the host
-port with `EDIPARSE_HOST_PORT`, export it in your shell. A later `--scale` recreates the load balancer and would
+port with `EDIPARSE_HOST_PORT` and run `docker compose` directly, export it in your shell (`make scale` already passes
+`PORT` and uses `--no-recreate`). A later raw `docker compose up --scale` recreates the load balancer and would
 otherwise fall back to 8080.
 
 ### Kubernetes
@@ -110,7 +116,10 @@ the CPU limit to match.
 1. Create a task definition with the image:
    - Port 8080
    - 2 vCPU / 2 GB to match `WEB_CONCURRENCY=2`
-   - Health check: the image's built-in `HEALTHCHECK` (uses Python, no curl needed), or the ALB target health check on `/healthz`
+   - Health check: ECS ignores the image's `HEALTHCHECK`. Either rely on the ALB target health check on `/healthz`, or
+     add a task-definition `healthCheck` with the same command:
+     `["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]`
+     (the image has no curl)
    - Ephemeral storage sized for spooled uploads
 2. Put an **Application Load Balancer** in front. Target group on HTTP 8080, health path `/healthz`.
 3. **Raise the ALB idle timeout** from the default 60 s to around 600 s for large files.
@@ -118,8 +127,13 @@ the CPU limit to match.
 
 ### Google Cloud Run
 
+Cloud Run pulls from Artifact Registry (or Docker Hub), not from ghcr.io. Push the image to Artifact Registry first,
+or create an Artifact Registry *remote repository* that proxies ghcr.io.
+
 ```bash
-gcloud run deploy ediparse --image ghcr.io/vis-sub/universal-edi-parser:latest \
+docker build -t REGION-docker.pkg.dev/PROJECT/REPO/universal-edi-parser:v0.3.0 . && \
+  docker push REGION-docker.pkg.dev/PROJECT/REPO/universal-edi-parser:v0.3.0
+gcloud run deploy ediparse --image REGION-docker.pkg.dev/PROJECT/REPO/universal-edi-parser:v0.3.0 \
   --port 8080 --cpu 2 --memory 2Gi --concurrency 4 --timeout 3600 \
   --set-env-vars WEB_CONCURRENCY=2 --no-allow-unauthenticated
 ```
@@ -128,7 +142,6 @@ Cloud Run limits **HTTP/1 request bodies to 32 MiB**:
 - gzip the upload (`Content-Encoding: gzip`). The limit applies to compressed bytes, and EDI usually compresses 10–20×.
 - Or use another option for larger files. Cloud Run's HTTP/2 path removes the limit, but needs an h2c-capable server, which uvicorn is not.
 - Cloud Run's `/tmp` is in memory, so spooled uploads count against `--memory`.
-- Cloud Run deploys may need the image mirrored into Artifact Registry.
 
 ### Azure Container Apps
 
@@ -144,7 +157,7 @@ load balancer with the settings from "How scaling works".
 ### Without a service: library in workers or functions
 
 If files arrive in object storage or on a queue, you may not need an HTTP service at all. Run the library inside
-whatever already processes those events. It streams, so memory stays flat even in small functions.
+whatever already processes those events. It streams, so memory doesn't grow with file size, even in small functions.
 
 ```python
 # e.g. an S3-triggered AWS Lambda, or a worker consuming file references from SQS/Kafka/PubSub

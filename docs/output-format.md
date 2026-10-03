@@ -11,7 +11,7 @@ Schema 2020-12). The test suite validates every record from every sample, and fr
 {"type":"message", ...}
 {"type":"interchange", ...}    when each interchange closes (after its messages)
 {"type":"issue", ...}          only for problems outside any interchange
-{"type":"summary", ...}        always last
+{"type":"summary", ...}        always last (unless excluded with include=)
 ```
 
 - In NDJSON (the default) each record is one line.
@@ -46,12 +46,13 @@ Schema 2020-12). The test suite validates every record from every sample, and fr
 | Field | Meaning |
 |---|---|
 | `sequence` | 1-based position of this document in the stream |
-| `interchange` | Context of the enclosing interchange: `control` is ISA13/UNB05/STX05, `version` is ISA12 or the EDIFACT syntax version. `null` only if the document is outside any interchange |
-| `group` | Enclosing functional group: X12 GS01/GS06/GS08, EDIFACT UNG. `null` when there's no explicit group (EDIFACT without UNG, TRADACOMS, HL7) |
+| `interchange` | Context of the enclosing interchange: `control` is ISA13/UNB05/STX05, `version` is ISA12 or the EDIFACT syntax version. Always present. Its fields are `null` when there's no interchange header (e.g. HL7 without `FHS`) |
+| `group` | Enclosing functional group: X12 GS01/GS06/GS08, EDIFACT UNG. `null` when there's no explicit group (EDIFACT without UNG, TRADACOMS, HL7 without BHS). For HL7 `BHS`, `type` is `null` and `control` is BHS-11 |
 | `message.type` | ST01 / UNH02 type / MHD02 type / MSH-9 |
 | `message.control` | ST02 / UNH01 / MHD01 / MSH-10 |
 | `message.version` | ST03 or GS08 / UNH02 directory (`D.96A`) / MHD02 version / MSH-12 |
-| `message.segment_count` | Segments including header and trailer |
+| `message.segment_count` | Segments including header and trailer: all of them, even when `truncated` |
+| `message.truncated` | Present (`true`) only if the service's `EDIPARSE_MAX_MESSAGE_SEGMENTS` limit stopped returning body segments. See `message_truncated` |
 | `header`, `trailer`, `segments` | Present unless `segments=false`. `segments` is the body in order, without header and trailer. `trailer` is `null` if missing, or always for HL7 |
 | `valid` | `false` if any issue on this document has severity `error` |
 | `issues` | Problems detected while this document was open |
@@ -116,7 +117,8 @@ A problem outside any interchange. The fields are the same as entries in `issues
 {"type": "summary", "interchanges": 1, "messages": 2, "errors": 0, "warnings": 0, "valid": true}
 ```
 
-It's always the last record. **If a response ends without one, treat it as incomplete** (connection lost, or an
+It's always the last record (unless you excluded it with `include=`). **If a response that asked for it ends without
+one, treat it as incomplete** (connection lost, or an
 `error` record came instead).
 
 ## `error` (service only)
@@ -125,8 +127,8 @@ It's always the last record. **If a response ends without one, treat it as incom
 {"type": "error", "message": "...", "error": "RuntimeError"}
 ```
 
-Sent if parsing fails unexpectedly after the 200 response has started. It hasn't occurred in fuzz testing, but
-clients should handle it.
+Sent if parsing fails after the 200 response has started: for example gzip corruption, or the decompressed-size limit,
+found beyond the first 1 MiB. Clients should handle it.
 
 ## Issue codes
 
@@ -137,13 +139,16 @@ clients should handle it.
 | `unmatched_segment` | error | A trailer without its header, or a segment outside any interchange |
 | `no_group` | error | An X12 `ST` outside a `GS`/`GE` group |
 | `bad_header` | error | An interchange header couldn't be read. The parser skipped to the next header (the message says how far) |
+| `oversized_segment` | error | A segment exceeded the maximum length (or had no terminator). The parser skipped to the next interchange header |
+| `message_truncated` | error | The document has more body segments than the configured limit. Later segments were counted (control totals still checked) but not returned |
 | `outside_message` | warning | A segment inside an interchange but outside any message (other than X12 `TA1`) |
 | `no_interchange` | warning | A group or message with no interchange header |
 | `orphan_una` | warning | An EDIFACT `UNA` not followed by `UNB` |
 | `isa_format` | warning | The ISA isn't the standard 106 characters, or ISA11 isn't a usable repetition separator |
-| `leading_data` | warning | Non-blank characters before the first header were ignored |
+| `leading_data` | warning | Non-blank characters before the first readable header were ignored (including header-like words such as `ISA,` in a mail banner) |
 | `unterminated_segment` | warning | The last segment has no terminator |
-| `empty_segment` | warning | An empty segment (e.g. doubled terminator) was skipped |
+| `empty_segment` | warning | One or more empty segments (e.g. doubled terminators) were skipped. Reported once per run |
+| `too_many_issues` | warning | More issues than the per-document/interchange limit; the rest were omitted |
 | `unusual_tag` | warning | A segment tag isn't 2–3 uppercase letters or digits. Often a sign of corruption |
 | `wrapped_lines` | info | Line breaks inside segments were removed (hard-wrapped file) |
 | `invalid_utf8` | info | Bytes that aren't valid UTF-8 were read as Latin-1 |

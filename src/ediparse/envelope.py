@@ -30,8 +30,19 @@ SPECS = {
 
 
 class EnvelopeBuilder:
-    def __init__(self, retain: bool = False):
+    """Limits apply only when streaming (retain=False), where they bound memory per message and interchange:
+
+    ``max_message_segments``: body segments kept per message; later ones are counted (for SE/UNT checks) but
+    not stored, and the message gets a ``message_truncated`` error. ``max_issues``: issues kept per message
+    or interchange; later ones are replaced by a single ``too_many_issues`` notice. None means unlimited.
+    """
+
+    MAX_LOOSE = 1000  # segments kept per interchange outside any message, when streaming
+
+    def __init__(self, retain: bool = False, max_message_segments: int | None = None, max_issues: int | None = 1000):
         self.retain = retain
+        self.max_message_segments = None if retain else max_message_segments
+        self.max_issues = None if retain else max_issues
         self.ic: Interchange | None = None
         self.grp: Group | None = None
         self.msg: Message | None = None
@@ -52,12 +63,14 @@ class EnvelopeBuilder:
         """Attach to the open message, else the open interchange, else emit on its own."""
         if self.retain:
             self.issues.append(issue)
-        if self.msg:
-            self.msg.issues.append(issue)
-        elif self.ic:
-            self.ic.issues.append(issue)
-        else:
+        target = self.msg.issues if self.msg else self.ic.issues if self.ic else None
+        if target is None:
             self._events.append(IssueEvent(issue))
+        elif self.max_issues is None or len(target) < self.max_issues:
+            target.append(issue)
+        elif len(target) == self.max_issues:
+            target.append(Issue("warning", "too_many_issues",
+                                f"More than {self.max_issues} issues here; further issues are omitted"))
 
     def issue(self, severity: str, code: str, message: str, seg: Segment | None) -> None:
         self.add_issue(Issue(severity, code, message, seg.index if seg else None))
@@ -191,9 +204,18 @@ class EnvelopeBuilder:
             else:
                 self.stray_segment(seg, f"{t} without matching {spec.message[0]}")
         elif self.msg:
-            self.msg.segments.append(seg)
+            msg = self.msg
+            msg.body_count += 1
+            if self.max_message_segments is None or len(msg.segments) < self.max_message_segments:
+                msg.segments.append(seg)
+            elif not msg.truncated:
+                msg.truncated = True
+                self.issue("error", "message_truncated",
+                           f"{msg.header.tag} {msg.control} has more than {self.max_message_segments} segments; "
+                           "later segments are counted but not returned", seg)
         elif self.ic:
-            self.ic.loose.append(seg)
+            if self.retain or len(self.ic.loose) < self.MAX_LOOSE:
+                self.ic.loose.append(seg)
             if not (seg.dialect.standard == X12 and t == "TA1"):
                 self.issue("warning", "outside_message", f"{t} is outside any message", seg)
         else:
@@ -219,7 +241,7 @@ def _expect(b: EnvelopeBuilder, seg: Segment, n: int, expected: object, what: st
 
 
 def _check_message(b: EnvelopeBuilder, msg: Message) -> None:
-    t, count = msg.trailer, len(msg.segments) + 2
+    t, count = msg.trailer, msg.body_count + 2
     if msg.standard in (X12, EDIFACT):
         _expect(b, t, 1, count, "segment count")
         _expect(b, t, 2, msg.control, "control number")

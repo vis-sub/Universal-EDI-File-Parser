@@ -35,7 +35,7 @@ working on clean JSON.
 
 - **Application developers** who receive EDI files and need the data: order intake, invoice processing, claims analytics, shipment tracking.
 - **Platform teams** who want EDI parsing as an internal service that any team can call.
-- **Data engineers** loading EDI into warehouses or lakes (NDJSON/CSV output, streaming, flat memory).
+- **Data engineers** loading EDI into warehouses or lakes (NDJSON/CSV output, streaming, memory independent of file size).
 - **Integration and EDI analysts** who need to inspect, validate or debug files quickly (`ediparse -f tree`, `ediparse validate`).
 
 ## What it does
@@ -44,16 +44,22 @@ working on clean JSON.
 - Splits every file into **interchange → group → message** and returns **one JSON object per message** (business document).
 - Gives every element a **positional ID** (`BEG03`, `NM103`, `PID-5`). It handles composites and repeats, and resolves escape characters.
 - Checks **control totals and control numbers** (SE/GE/IEA, UNT/UNE/UNZ, MTR/END) and reports problems **per document**, so one bad document doesn't fail a batch.
-- **Streams.** Memory stays flat regardless of file size. It is bounded by the largest single document.
+- **Streams.** Memory doesn't grow with file size; it's bounded by the largest single document, with configurable hard limits in the service. Work is linear in the input.
 - **Tolerates messy input** and recovers from damaged interchange headers by skipping to the next one.
 - **Round-trips losslessly.** The parsed tree reproduces the input byte for byte.
 
-## What it deliberately does not do (yet)
+## What it doesn't do yet
 
-- **Interpret meaning.** It tells you `N101 = "ST"`, not that this is the ship-to party. Field labels and loop structure (e.g. the 837's 2000A/2300/2400 loops) are on the [roadmap](roadmap.md). The [document catalog](document-catalog.md) describes those structures.
-- **Map to your schema.** Turning a parsed 850 into your order object is your code. That's the point of the separation.
-- **Validate against implementation guides.** It checks envelope integrity, not whether an 837 obeys every HIPAA rule (SNIP levels 3+).
-- **Generate EDI or transport it** (AS2, SFTP, VAN). It reads files; how they arrive is up to you.
+This is the first iteration (v0.3.0). These are planned, in this order (see [roadmap](roadmap.md) and
+[how it compares](comparison.md) with the open-source projects that do them today):
+
+- **Interpret meaning** ([Phase 1](roadmap.md#phase-1-meaning)). Today it tells you `N101 = "ST"`, not that this is the ship-to party. Loop structure (e.g. the 837's 2000A/2300/2400 loops) and field labels come next. The [document catalog](document-catalog.md) describes those structures.
+- **Generate acknowledgments and write EDI** ([Phase 2](roadmap.md#phase-2-respond-and-write)): 997/999/TA1/CONTRL, and JSON → EDI.
+- **Validate against schemas and implementation guides** ([Phase 3](roadmap.md#phase-3-validate)). Today it checks envelope integrity and control totals, not every HIPAA rule (SNIP levels 3+).
+
+Deliberately out of scope:
+- **Mapping to your schema.** Turning a parsed 850 into your order object stays in your code. That's the point of the separation.
+- **Transport and partner management** (AS2, SFTP, VAN, onboarding). This project is a component for those pipelines.
 
 ## How the pieces fit
 

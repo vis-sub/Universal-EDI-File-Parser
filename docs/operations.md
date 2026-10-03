@@ -9,7 +9,7 @@ claims (1.16 million segments).
 
 | What | Result |
 |---|---|
-| Library, parse only, one process | 8.5 s (**≈ 5.6 MB/s**), peak RSS **22 MB** |
+| Library, parse only, one process | 8.1 s (**≈ 5.9 MB/s**), peak RSS **22 MB** |
 | Library, parse + JSON metadata (`segments=False`) | 10.1 s (≈ 4.7 MB/s) |
 | Library, parse + full JSON (293 MB of output) | 30.6 s (≈ 1.5 MB/s). JSON serialization dominates |
 | Service, one request, metadata only | ≈ 10–11 s |
@@ -26,7 +26,9 @@ Rules of thumb:
 
 Per worker process:
 - about **60 MB** baseline (Python + FastAPI)
-- plus the **largest single document** being parsed (usually KBs, sometimes MBs)
+- plus the **largest single document** being parsed, at roughly 0.5–1 KB per segment held (about 15–50× the document's
+  size). Usually KBs. A HIPAA 837 with 5,000 claims under one ST (about 150,000 segments) is roughly 80–150 MB.
+  `EDIPARSE_MAX_MESSAGE_SEGMENTS` (default 250,000) caps this per request
 
 Per in-flight request:
 - up to **`EDIPARSE_SPOOL_MEMORY_MB`** (16 MB) of upload held in memory
@@ -35,8 +37,8 @@ Per in-flight request:
 | Setting | Guidance |
 |---|---|
 | CPU | 1 core per worker. Set `WEB_CONCURRENCY` equal to the container's CPU limit |
-| Memory limit | `workers × 100 MB` + `concurrent requests × 16 MB` + headroom. The manifests use 1 Gi for 2 workers |
-| `/tmp` size | `concurrent requests × typical upload size` |
+| Memory limit | `workers × (100 MB + largest expected document)` + `concurrent requests × 16 MB` + headroom. The manifests use 1 Gi for 2 workers; raise it if you raise `EDIPARSE_MAX_MESSAGE_SEGMENTS` |
+| `/tmp` size | `concurrent requests × largest expected upload`. When it's full, uploads get `507` |
 | `/tmp` on tmpfs? | **Spooled bytes then count as container memory.** Measured: 4 concurrent 47 MB uploads per container showed about 314 MiB. That's spool, not parser memory. Use disk-backed `/tmp` (the Kubernetes `emptyDir` default) for large files, or size the memory limit to include it |
 
 ## Configuration reference
@@ -47,8 +49,13 @@ Per in-flight request:
 | `EDIPARSE_HTTP_HOST` / `EDIPARSE_HTTP_PORT` | `127.0.0.1` / `8080` (image: `0.0.0.0`) | Bind address |
 | `EDIPARSE_MAX_UPLOAD_MB` | `1024` | Uploads larger than this get 413 |
 | `EDIPARSE_SPOOL_MEMORY_MB` | `16` | Upload bytes kept in memory before spilling to `/tmp` |
-| `EDIPARSE_CHUNK_KB` | `64` | Read size for the parser |
-| `EDIPARSE_MAX_ISSUES` | `1000` | Cap on issues listed by `/v1/validate` |
+| `EDIPARSE_MAX_DECOMPRESSED_MB` | `4096` | Gzip bodies that decompress to more than this are rejected (400, or an in-band `error` record once streaming has started) |
+| `EDIPARSE_MAX_SEGMENT_MB` | `8` | A segment longer than this (or with no terminator) is reported as `oversized_segment` and skipped up to the next interchange header |
+| `EDIPARSE_MAX_MESSAGE_SEGMENTS` | `250000` | Body segments kept per document. Later ones are counted (control totals stay correct) but not returned, and the document gets `message_truncated` |
+| `EDIPARSE_MAX_ISSUES` | `1000` | Issues kept per document/interchange (then one `too_many_issues`), and the cap on issues listed by `/v1/validate` |
+| `EDIPARSE_CHUNK_KB` | `64` | Read size for the parser and for gzip output steps |
+
+All settings are validated at startup; a bad value stops `ediparse serve` with a clear message.
 
 The names avoid `EDIPARSE_PORT` and `EDIPARSE_HOST` on purpose. Kubernetes injects `EDIPARSE_PORT=tcp://…` into
 pods when a Service is named `ediparse`, which crashed pods in testing. The manifests also set
@@ -65,7 +72,7 @@ pods when a Service is named `ediparse`, which crashed pods in testing. The mani
 | Per-file outcome | The `summary` record (`errors`, `warnings`, `valid`). Clients should log it |
 
 There's no metrics endpoint yet (see the [roadmap](roadmap.md)). Useful alerts today:
-- the 5xx rate in load-balancer or access logs (it should be zero: parse problems are 200 + issues, bad input is 4xx)
+- the 5xx rate in load-balancer or access logs (it should be zero: parse problems are 200 + issues, bad input is 4xx, a full `/tmp` is 507)
 - p95 request duration growing with file size
 - container restarts / OOM kills
 - `/tmp` usage
@@ -75,12 +82,14 @@ There's no metrics endpoint yet (see the [roadmap](roadmap.md)). Useful alerts t
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| Records arrive all at once at the end | A proxy is buffering the response | nginx: `proxy_buffering off`. ingress-nginx: `proxy-buffering: "off"`. ALB/Cloud Run stream by default |
+| Records arrive all at once at the end (large files) | A proxy is buffering the response. Small files always arrive in one write, since output is batched in ~64 KiB | nginx: `proxy_buffering off`. ingress-nginx: `proxy-buffering: "off"`. ALB/Cloud Run stream by default |
 | `413` | Upload > `EDIPARSE_MAX_UPLOAD_MB`, or the proxy's body limit | Raise both together (nginx `client_max_body_size`, ingress `proxy-body-size`) |
 | `422 Not usable EDI` | No readable header in the first 1 MiB | Check the client sends the raw file. Check for a damaged ISA (`ediparse detect file.edi`) |
 | Response ends without a `summary` | Client/proxy timeout, or a pod killed mid-stream | Raise proxy read timeouts (600 s+). Check for OOM kills. Retry the file |
 | Pods crash at startup with `invalid port 'tcp://…'` | `EDIPARSE_HTTP_PORT` overridden with a Kubernetes service-link value | Use the provided manifests (`enableServiceLinks: false`), or don't name env vars after the Service |
-| OOM kills | tmpfs `/tmp` counted against memory, or a single huge document | Use disk-backed `/tmp`; raise the memory limit; split huge documents upstream |
+| OOM kills | tmpfs `/tmp` counted against memory, or large single documents | Use disk-backed `/tmp`; lower `EDIPARSE_MAX_MESSAGE_SEGMENTS` or raise the memory limit |
+| `message_truncated` on documents | A document has more segments than `EDIPARSE_MAX_MESSAGE_SEGMENTS` | Raise the limit (and the memory limit) if those documents are legitimate |
+| `oversized_segment` | A segment over `EDIPARSE_MAX_SEGMENT_MB`, or the file's terminator isn't what its header declares | Check the file with `ediparse detect`; raise the limit only for genuinely large segments (e.g. binary attachments) |
 | Throughput lower than expected | Too few workers for the CPU, or full output where metadata would do | Match `WEB_CONCURRENCY` to CPU; use `segments=false`; add replicas |
 | `valid: false` on documents | Control counts/numbers wrong, missing trailers | Read `issues`. Often the sender's problem; the data is still returned |
 | Values contain odd accented characters | The file isn't UTF-8 | Expected: invalid bytes are shown as Latin-1 (`invalid_utf8` issue). Pass `encoding=cp1252` (or the right codec) if known |

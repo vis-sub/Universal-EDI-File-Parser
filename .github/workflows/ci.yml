@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
-      - run: ruff check src tests examples tools
+      - run: ruff check src tests examples tools scripts
       - run: pytest -q
 
   docker:

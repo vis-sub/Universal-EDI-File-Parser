@@ -60,7 +60,9 @@ def event_to_dict(event: Event, segments: bool = True) -> dict:
     if isinstance(event, MessageEvent):
         msg = event.message
         body = {"type": msg.type, "control": msg.control, "version": msg.version,
-                "segment_count": len(msg.segments) + 1 + (1 if msg.trailer else 0)}
+                "segment_count": msg.body_count + 1 + (1 if msg.trailer else 0)}
+        if msg.truncated:
+            body["truncated"] = True
         if segments:
             body |= {"header": _seg(msg.header), "trailer": _seg(msg.trailer),
                      "segments": [segment_to_dict(s) for s in msg.segments]}

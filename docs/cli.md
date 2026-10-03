@@ -15,8 +15,8 @@ ediparse serve [--host HOST] [--port PORT] [--workers N]
 
 | Format | Streams? | Output |
 |---|---|---|
-| `ndjson` (default) | Yes, flat memory | One [record](output-format.md) per line, each with `"file"`, and a `summary` per file |
-| `csv` | Yes, flat memory | One row per non-empty value: `file, interchange, group, message_type, message_control, segment_index, segment_tag, element, repeat, component, value` |
+| `ndjson` (default) | Yes (memory independent of file size) | One [record](output-format.md) per line, each with `"file"`, and a `summary` per file |
+| `csv` | Yes (memory independent of file size) | One row per non-empty value: `file, interchange, group, message_type, message_control, segment_index, segment_tag, element, repeat, component, value` |
 | `json` | No (loads the file) | One object per file: the full interchange → group → message tree. A JSON array for several files |
 | `tree` | No (loads the file) | Human-readable outline with delimiters and issues |
 

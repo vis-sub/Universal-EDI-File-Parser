@@ -9,7 +9,8 @@ _ESCAPED_TO_LATIN1 = {0xDC00 + b: b for b in range(0x80, 0x100)}
 
 def has_escaped_bytes(s: str) -> bool:
     """True if ``s`` holds bytes that were not valid UTF-8 (kept as surrogates by the decoder)."""
-    return _ESCAPED_BYTE.search(s) is not None
+    # isascii() is a constant-time flag check in CPython, and escaped bytes are never ASCII.
+    return not s.isascii() and _ESCAPED_BYTE.search(s) is not None
 
 
 def display(s: str) -> str:

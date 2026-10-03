@@ -114,7 +114,7 @@ make down
 | `Cannot connect to the Docker daemon` | Start Docker Desktop and wait until it's running |
 | `422 Not usable EDI` | The body has no readable ISA/UNA/UNB/STX/MSH header. Check you're sending the file itself, not a path or a form upload |
 | `415` | You sent multipart form data. Use `--data-binary @file` |
-| Records arrive all at once, not streamed | A proxy is buffering responses. See [Deployment → reverse proxies](deployment.md#how-scaling-works) |
+| Records arrive all at once, not streamed | Normal for small files: the service writes in ~64 KiB batches, so a small file's output arrives in one write. For large files, a proxy is buffering responses. See [Deployment → how scaling works](deployment.md#how-scaling-works) |
 | `make scale` set the wrong port | Always pass the same `PORT` you used for `make up` |
 
 ## Next steps

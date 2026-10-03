@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please **do not open a public issue** for security problems. Use GitHub's private vulnerability reporting
+Please **do not open a public issue** for security problems. (Maintainers: enable **Settings → Code security → Private vulnerability reporting** after publishing.) Use GitHub's private vulnerability reporting
 (**Security → Report a vulnerability** on this repository). Include:
 - the affected version or commit
 - steps or an input file that reproduces it (synthetic data only, never real PHI or production EDI)

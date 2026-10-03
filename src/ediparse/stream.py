@@ -15,7 +15,7 @@ from typing import BinaryIO, Union
 
 from .envelope import EnvelopeBuilder
 from .model import Document, Event, Issue, Segment
-from .tokenizer import Tokenizer
+from .tokenizer import DEFAULT_MAX_SEGMENT, Tokenizer
 
 DEFAULT_CHUNK_SIZE = 1 << 16
 
@@ -33,8 +33,7 @@ class _Decoder:
 
     def __init__(self, encoding: str = "auto"):
         self.encoding = "utf-8" if encoding == "auto" else encoding
-        errors = "surrogateescape" if self.encoding == "utf-8" else "strict"
-        self._dec = codecs.getincrementaldecoder(self.encoding)(errors=errors)
+        self._dec = codecs.getincrementaldecoder(self.encoding)(errors="surrogateescape")
 
     def decode(self, data: bytes, final: bool = False) -> str:
         return self._dec.decode(data, final)
@@ -47,10 +46,11 @@ class StreamParser:
     tree is also kept and available from ``document()`` after ``close()``.
     """
 
-    def __init__(self, encoding: str = "auto", retain: bool = False):
+    def __init__(self, encoding: str = "auto", retain: bool = False, *, max_segment: int = DEFAULT_MAX_SEGMENT,
+                 max_message_segments: int | None = None, max_issues: int | None = 1000):
         self._decoder = _Decoder(encoding)
-        self._tokenizer = Tokenizer(keep_prefix=retain)
-        self._builder = EnvelopeBuilder(retain=retain)
+        self._tokenizer = Tokenizer(keep_prefix=retain, max_segment=max_segment)
+        self._builder = EnvelopeBuilder(retain, max_message_segments, max_issues)
         self._segments: list[Segment] | None = [] if retain else None
         self._closed = False
 
@@ -106,20 +106,22 @@ def iter_chunks(source: Source, chunk_size: int = DEFAULT_CHUNK_SIZE) -> Iterato
         yield from source
 
 
-def stream(source: Source, *, chunk_size: int = DEFAULT_CHUNK_SIZE, encoding: str = "auto") -> Iterator[Event]:
+def stream(source: Source, *, chunk_size: int = DEFAULT_CHUNK_SIZE, encoding: str = "auto",
+           **limits) -> Iterator[Event]:
     """Parse ``source`` incrementally, yielding each event as soon as it is complete.
 
-    A ``str`` source is a file path; to parse EDI text, pass ``[text]``.
+    A ``str`` source is a file path; to parse EDI text, pass ``[text]``. ``limits`` are passed to
+    StreamParser: ``max_segment``, ``max_message_segments``, ``max_issues``.
     """
-    parser = StreamParser(encoding)
+    parser = StreamParser(encoding, **limits)
     for chunk in iter_chunks(source, chunk_size):
         yield from parser.feed(chunk)
     yield from parser.close()
 
 
-async def astream(source: AsyncIterable[bytes | str], *, encoding: str = "auto") -> AsyncIterator[Event]:
+async def astream(source: AsyncIterable[bytes | str], *, encoding: str = "auto", **limits) -> AsyncIterator[Event]:
     """Async variant of ``stream`` for async byte sources (sockets, HTTP bodies, object storage)."""
-    parser = StreamParser(encoding)
+    parser = StreamParser(encoding, **limits)
     async for chunk in source:
         for event in parser.feed(chunk):
             yield event

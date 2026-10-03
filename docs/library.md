@@ -38,12 +38,23 @@ for event in stream("batch.edi"):
 - an iterable of `bytes` or `str` chunks
 
 `encoding="auto"` decodes UTF-8 and reads any invalid bytes as Latin-1 (see
-[Architecture → text decoding](architecture.md#text-decoding)). Pass a codec name (e.g. `"cp1252"`) to decode
-strictly in that encoding.
+[Architecture → text decoding](architecture.md#text-decoding)). You can also pass an ASCII-compatible codec name
+(e.g. `"cp1252"`). Bytes it can't decode are kept losslessly and shown as Latin-1, so decoding never fails. UTF-16/32
+aren't supported (EDI delimiters must be single ASCII bytes).
+
+Optional limits (keyword arguments, also accepted by `StreamParser` and `astream`) bound memory per document:
+
+| Argument | Default | When exceeded |
+|---|---|---|
+| `max_segment` | 16 MiB (characters) | `oversized_segment` error; skip to the next interchange header |
+| `max_message_segments` | `None` (unlimited) | Later body segments are counted but not stored; `message.truncated = True`, `message_truncated` error |
+| `max_issues` | 1000 | Per message/interchange; then one `too_many_issues` notice |
+
+They apply only when streaming. Retained parsing (`parse_file`, `retain=True`) keeps everything.
 
 Raises `EDIDetectionError` only if the input contains no usable EDI header at all.
 
-### `StreamParser(encoding="auto", retain=False)`
+### `StreamParser(encoding="auto", retain=False, *, max_segment=..., max_message_segments=None, max_issues=1000)`
 
 The push parser that everything else is built on.
 
@@ -101,6 +112,8 @@ worker thread instead, as the service does.
 | `all_segments()` | Header + body + trailer |
 | `group`, `interchange` | Enclosing `Group` / `Interchange` (headers available while streaming) |
 | `issues` | `Issue`s raised while this message was open |
+| `body_count` | Body segments seen (equals `len(segments)` unless truncated) |
+| `truncated` | `True` if `max_message_segments` stopped storing body segments |
 
 ### `Segment`
 

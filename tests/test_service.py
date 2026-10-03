@@ -152,3 +152,91 @@ def test_client_disconnect_releases_spool(monkeypatch):
     finally:
         server.should_exit = True
         thread.join(10)
+
+
+# -- regressions from the pre-publication code review ------------------------------------------
+
+@pytest.mark.parametrize("path", ["/v1/parse", "/v1/validate", "/v1/detect"])
+@pytest.mark.parametrize("enc", ["bogus", "utf-16", "utf-32"])
+def test_bad_encoding_is_422_on_every_endpoint(client, path, enc):
+    """Was 500 on /v1/validate and an in-band error on /v1/parse."""
+    r = client.post(f"{path}?encoding={enc}", content=PO)
+    assert r.status_code == 422 and "encoding" in r.json()["detail"]
+
+
+def test_ascii_compatible_codec_accepted(client):
+    data = x12("ST*850*0001~N1*ST*CAF\xc9~SE*3*0001").encode("cp1252")
+    recs = ndjson(client.post("/v1/parse?encoding=cp1252", content=data))
+    assert recs[0]["message"]["segments"][0]["elements"]["N102"] == "CAF\xc9" and recs[-1]["valid"]
+
+
+def test_gzip_is_decompressed_in_bounded_chunks():
+    from ediparse.service import _Upload
+    import io
+    s = Settings(chunk_bytes=4096)
+    up = _Upload(io.BytesIO(gzip.compress(b"A" * 5_000_000)), True, s)  # ~5 KB compressed
+    sizes = [len(c) for c in up.chunks()]
+    assert max(sizes) <= 4096 and sum(sizes) == 5_000_000
+
+
+def test_decompressed_size_cap():
+    small = TestClient(create_app(Settings(max_decompressed_bytes=2_000_000)))
+    bomb = gzip.compress(PO + b"\n" + b" " * 8_000_000)
+    assert small.post("/v1/validate", content=bomb, headers={"Content-Encoding": "gzip"}).status_code == 400
+    recs = ndjson(small.post("/v1/parse", content=bomb, headers={"Content-Encoding": "gzip"}))
+    assert recs[-1]["type"] == "error" and "exceeds" in recs[-1]["message"]
+
+
+def test_multi_member_gzip_reads_every_member(client):
+    """Was: only the first member was parsed (cat a.gz b.gz)."""
+    body = gzip.compress(PO) + gzip.compress(CLAIM)
+    d = client.post("/v1/detect", content=body, headers={"Content-Encoding": "gzip"}).json()
+    assert len(d["interchanges"]) == 2
+
+
+def test_truncated_gzip_is_rejected(client):
+    """Was: silently parsed the readable part."""
+    body = gzip.compress(CLAIM)
+    r = client.post("/v1/parse", content=body[: len(body) // 2], headers={"Content-Encoding": "gzip"})
+    assert r.status_code == 400 and "runcated" in r.json()["detail"]
+
+
+def test_deflate_is_not_accepted(client):
+    import zlib
+    assert client.post("/v1/parse", content=zlib.compress(PO), headers={"Content-Encoding": "deflate"}).status_code == 415
+
+
+def test_large_non_edi_body_is_422(client):
+    """Was: >1 MiB of plain text got 200 + an in-band error."""
+    big = TestClient(create_app(Settings(max_upload_bytes=10_000_000)))
+    assert big.post("/v1/parse", content=b"hello world\n" * 200_000).status_code == 422
+
+
+def test_full_temp_storage_is_507(client, monkeypatch):
+    import tempfile
+
+    class Full(tempfile.SpooledTemporaryFile):
+        def write(self, data):
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(tempfile, "SpooledTemporaryFile", Full)
+    assert client.post("/v1/parse", content=PO).status_code == 507
+
+
+def test_settings_are_validated(monkeypatch):
+    with pytest.raises(ValueError, match="chunk_bytes"):
+        Settings(chunk_bytes=0)
+    monkeypatch.setenv("EDIPARSE_MAX_UPLOAD_MB", "lots")
+    with pytest.raises(ValueError, match="EDIPARSE_MAX_UPLOAD_MB"):
+        Settings.from_env()
+
+
+def test_info_reports_all_limits(client):
+    limits = client.get("/v1/info").json()["limits"]
+    assert {"max_segment_bytes", "max_message_segments", "max_decompressed_bytes", "max_issues"} <= set(limits)
+
+
+def test_message_limit_applies_in_service():
+    small = TestClient(create_app(Settings(max_message_segments=5)))
+    recs = ndjson(small.post("/v1/parse?include=message", content=CLAIM))
+    assert recs[0]["message"]["truncated"] is True and len(recs[0]["message"]["segments"]) == 5

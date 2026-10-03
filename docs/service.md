@@ -39,12 +39,14 @@ curl --data-binary @orders.edi http://localhost:8080/v1/parse
 gzip -c big_837.edi | curl --data-binary @- -H "Content-Encoding: gzip" http://localhost:8080/v1/parse
 ```
 
+`Content-Encoding: gzip` is supported, including multi-member gzip (`cat a.gz b.gz`). Truncated or corrupt gzip gets `400`. Other encodings get `415`.
+
 | Query parameter | Default | Meaning |
 |---|---|---|
 | `format` | `ndjson` | `ndjson` gives one object per line. `json` gives the same objects in a JSON array, still streamed |
 | `include` | `message,interchange,issue,summary` | Which record types to return |
 | `segments` | `true` | `false` returns document metadata only, which is much smaller. Use it for routing or indexing |
-| `encoding` | `auto` | `auto` means UTF-8 with Latin-1 fallback. Any Python codec name is also accepted |
+| `encoding` | `auto` | `auto` means UTF-8, with invalid bytes read as Latin-1. Or an ASCII-compatible codec (`latin-1`, `cp1252`, …). UTF-16/32 and unknown codecs get `422` |
 
 ### Response records
 
@@ -75,11 +77,11 @@ generation and validation.
 
 | When | What you get |
 |---|---|
-| Body is empty (`400`), bad gzip (`400`), too large (`413`), multipart or unsupported encoding (`415`) | HTTP error with `{"detail": "..."}`, before any records |
+| Body is empty, or truncated/corrupt gzip, or decompresses past the limit (`400`); too large (`413`); multipart or unsupported `Content-Encoding` (`415`); bad `encoding`/`include` parameter (`422`); `/tmp` full (`507`) | HTTP error with `{"detail": "..."}`, before any records |
 | No usable EDI: no header, or the only header is unreadable | HTTP `422` with `{"detail": "Not usable EDI: ..."}`. The service tokenizes the first 1 MiB before answering |
 | A document has envelope problems (wrong SE count, missing trailer…) | Still HTTP 200. That document has `"valid": false` and `issues` entries, and the stream continues |
 | A later interchange header is damaged | Still HTTP 200. A `bad_header` issue says what was skipped, and parsing resumes at the next header |
-| An unexpected failure mid-stream | A final `{"type":"error", ...}` record. The HTTP status is already 200, so **check for a `summary` record** before treating a response as complete |
+| A failure after streaming has started (e.g. gzip corruption or the decompressed-size limit beyond the first 1 MiB) | A final `{"type":"error", ...}` record. The HTTP status is already 200, so **check for a `summary` record** before treating a response as complete |
 
 ## Consuming the stream
 
@@ -101,15 +103,17 @@ curl -s --data-binary @batch.edi "localhost:8080/v1/parse?segments=false" \
           publish(event_to_dict(event))
   ```
 
-## How memory stays flat
+## How memory stays bounded
 
 1. **Upload:** the request body is copied to a spool. It stays in memory up to `EDIPARSE_SPOOL_MEMORY_MB` and spills to a temp file beyond that.
-2. **Parse:** the spool is read in 64 KiB chunks by the incremental parser. Only the document currently being parsed is held in memory.
-3. **Respond:** each document is serialized as soon as it completes and written out in ~64 KiB batches. It is then dropped.
+2. **Check:** the first 1 MiB is decompressed and tokenized in a worker thread. A body with no usable EDI header gets `422` here, before any records.
+3. **Parse:** the spool is read in 64 KiB chunks (gzip output too) by the incremental parser. Only the document currently being parsed is held in memory.
+4. **Respond:** each document is serialized as soon as it completes and written out in ~64 KiB batches. It is then dropped.
 
 **Results start once the upload finishes.** Answering while the upload is still in progress (full duplex) is not
 used, because most HTTP clients don't read the response until they finish uploading. The JSON output is larger than
-the EDI input, so both sides would block waiting on each other. The temp file is deleted when the response ends.
+the EDI input, so both sides would block waiting on each other. The temp file is deleted when the response ends,
+including when the client disconnects.
 
 Measured on a laptop: a 47 MB file of 150,000 837 claims returns 150,000 records.
 
@@ -120,8 +124,9 @@ Measured on a laptop: a 47 MB file of 150,000 837 claims returns 150,000 records
 
 [Operations](operations.md#performance-measured) has more measurements, including concurrent load.
 
-The one exception to flat memory: a single huge document (one ST/SE holding thousands of claims) is held in memory
-in full, because it is returned as one object.
+**A single large document is held in memory until it completes** (one ST/SE with thousands of claims), at roughly
+0.5–1 KB per segment. `EDIPARSE_MAX_MESSAGE_SEGMENTS` caps it (see below). Segments, decompressed size and issues
+are capped too, so no single request can grow without limit.
 
 ## Configuration
 
@@ -130,11 +135,14 @@ in full, because it is returned as one object.
 | `WEB_CONCURRENCY` | `1` (compose/k8s: `2`) | Worker processes per instance. Parsing is CPU-bound, so use about one per core |
 | `EDIPARSE_MAX_UPLOAD_MB` | `1024` | Larger uploads are rejected with `413` |
 | `EDIPARSE_SPOOL_MEMORY_MB` | `16` | Per-request upload memory before spilling to `/tmp` |
-| `EDIPARSE_CHUNK_KB` | `64` | Parser read size |
-| `EDIPARSE_MAX_ISSUES` | `1000` | Cap on issues listed by `/v1/validate` |
+| `EDIPARSE_MAX_DECOMPRESSED_MB` | `4096` | Gzip bodies that decompress to more than this are rejected (400, or an in-band `error` record once streaming has started) |
+| `EDIPARSE_MAX_SEGMENT_MB` | `8` | A segment longer than this (or with no terminator) is reported as `oversized_segment` and skipped up to the next interchange header |
+| `EDIPARSE_MAX_MESSAGE_SEGMENTS` | `250000` | Body segments kept per document. Later ones are counted (control totals stay correct) but not returned, and the document gets `message_truncated` |
+| `EDIPARSE_MAX_ISSUES` | `1000` | Issues kept per document/interchange (then one `too_many_issues`), and the cap on issues listed by `/v1/validate` |
+| `EDIPARSE_CHUNK_KB` | `64` | Read size for the parser and for gzip output steps |
 | `EDIPARSE_HTTP_HOST` / `EDIPARSE_HTTP_PORT` | `127.0.0.1` / `8080` (`0.0.0.0` in Docker) | Bind address |
 
-Size `/tmp` to roughly *concurrent requests × max upload*. The compose file mounts a 2 GB tmpfs. Bytes on a tmpfs
+Size `/tmp` to roughly *concurrent requests × largest expected upload*; when it fills, uploads get `507`. The compose file mounts a 2 GB tmpfs. Bytes on a tmpfs
 count as container memory; see [Operations → sizing](operations.md#sizing).
 
 The bind variables are deliberately not `EDIPARSE_PORT`/`EDIPARSE_HOST`: Kubernetes injects `EDIPARSE_PORT=tcp://…`

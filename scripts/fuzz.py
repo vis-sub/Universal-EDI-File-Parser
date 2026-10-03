@@ -1,4 +1,4 @@
-"""Long-running mutation fuzz: python scripts/fuzz.py [cases-per-seed] [seeds]"""
+"""Long-running mutation fuzz: python scripts/fuzz.py [cases-per-seed] [seeds] [first-seed]"""
 import sys
 import time
 from pathlib import Path
@@ -8,9 +8,10 @@ from fuzzing import run  # noqa: E402
 
 cases = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
 seeds = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+first = int(sys.argv[3]) if len(sys.argv) > 3 else 100
 t = time.time()
 total = {"parsed": 0, "rejected": 0}
-for seed in range(100, 100 + seeds):
+for seed in range(first, first + seeds):
     for k, v in run(seed, cases).items():
         total[k] += v
     print(f"seed {seed}: ok  {total}", flush=True)

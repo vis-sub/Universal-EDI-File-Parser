@@ -2,8 +2,13 @@
 
 What every X12 document looks like, from the parser's point of view.
 
+> **About this material.** These are simplified summaries written for orientation, from general knowledge of the
+> standards. They're not a substitute for the official ASC X12 standards or HIPAA implementation guides, which are
+> copyrighted and licensed by ASC X12. Partner companion guides add further rules. Confirm segment usage, element
+> positions and code values against those documents before building on them.
+
 - **Full list:** [`reference/x12_transaction_sets.json`](../reference/x12_transaction_sets.json) covers all **319** transaction sets
-  (293 in 004010, 318 in 005010), with subcommittee, version availability, GS01 functional group,
+  (293 in 004010, 318 in 005010), with subcommittee, version availability, GS01 functional group (for the most-used sets),
   HIPAA implementation guides, EDIFACT equivalent, and a usage tier.
 - **Example files:** [`samples/x12/`](../samples/x12/) has synthetic files for the common documents in both versions.
   Regenerate them with `python3 tools/make_samples.py`.
@@ -49,7 +54,7 @@ a loop resolver for each pattern, not one per document. Detailed specs per docum
 | A | **Header / Detail / Summary** | A known "loop start" segment begins each loop (N1, PO1, IT1, LIN) and the loop ends when that segment repeats or a summary segment (CTT, TDS) appears | 850, 855, 860, 865, 810, 880, 875, 832, 846, 852, 830, 862 |
 | B | **HL hierarchy** | `HL*id*parent*level` gives parent/child links **in the data itself**, so the tree can be built with no schema | 856, 837, 270/271, 276/277, 278, 857 |
 | C | **LX-numbered detail** | `LX*n` starts each detail group | 214, 210, 940, 945, 835 (claim groups), 820 (HIPAA) |
-| D | **Stop / event loops** | One segment per stop or event (S5, AT7, Q2), with nested party loops | 204, 214, 315, 322, 990 |
+| D | **Stop / event loops** | One segment per stop or event (S5, AT7, Q2), with nested party loops | 204, 214, 315, 322 |
 | E | **Financial (BPR/TRN)** | BPR payment + TRN trace header, then party N1s, then remittance detail (RMR / CLP-SVC / ENT) | 820, 835, 823 |
 | F | **Warehouse W-segments** | W-prefixed header, detail, and totals segments | 940, 943, 944, 945, 947 |
 | G | **Acknowledgment / report** | Nested references to *another* document's control numbers, segments, and elements | 997, 999, 824, 864, TA1 |
@@ -60,7 +65,9 @@ consistent set of following segments starts a loop.
 
 ---
 
-## 3. Tier 1: the documents that make up most real-world traffic
+## 3. The most common documents
+
+These are the tier-1 sets from the registry, plus the most widely used tier-2 sets in each area.
 
 ### Supply chain / retail
 
@@ -79,7 +86,7 @@ SE
 ```
 
 #### 855 PO Acknowledgment (`PR`, A)
-`BAK` purpose, ack type (AC with detail, AD no detail, AK, RJ rejected), PO#, date → `{N1}` → `{PO1 → {ACK status (IA accepted, IR rejected, IQ qty changed, IB backordered…) qty date}}` → `CTT`
+`BAK` purpose, ack type (AC with detail and change, AD with detail no change, AK no detail or change, RJ rejected), PO#, date → `{N1}` → `{PO1 → {ACK status (IA accepted, IR rejected, IQ qty changed, IB backordered…) qty date}}` → `CTT`
 
 #### 860 PO Change, buyer initiated (`PC`, A) / 865 PO Change Ack, seller initiated (`CA`, A)
 `BCH` purpose, type, PO#, date → `{N1}` → `{POC line# change-code (AI add, DI delete, QD qty decrease, PC price change, CA changes) qty …}` → `CTT`
@@ -96,7 +103,12 @@ BSN  purpose shipment-id date time hierarchy-structure-code
 }
 CTT
 ```
-BSN05 gives the hierarchy order: `0001` = S-O-T-P-I (pick & pack) and `0002` = S-O-I (standard). Partners
+BSN05 gives the hierarchy order:
+- `0001`: Shipment / Order / Packaging / Item, the "pick & pack" layout. Partners often add a Tare (pallet) level, giving S-O-T-P-I.
+- `0002`: Shipment / Order / Item / Packaging, the "standard carton pack" layout.
+- `0004`: Shipment / Order / Item.
+
+Partners
 often omit levels. Because HL carries parent IDs, this document can always be parsed into a tree.
 
 #### 810 Invoice (`IN`, A)
@@ -205,7 +217,7 @@ BPR payment (amount, method ACH/CHK/NON, bank info, date)   TRN check/EFT trace 
 ```
 
 #### 834 Benefit Enrollment and Maintenance (`BE`)
-`BGN` (BGN08: 2 change, 4 verify/full file) → `REF*38 DTP` → `1000A N1*P5 sponsor` → `1000B N1*IN payer` → `{2000 INS member (Y subscriber / N dependent, relationship 18 self 01 spouse 19 child, maintenance 021 add 024 cancel 001 change 030 audit) → REF*0F → DTP → 2100A NM1*IL N3 N4 DMG → {2300 HD coverage (HLT, DEN, VIS) plan level → DTP*348/349}}`
+`BGN` (BGN08: 2 change/update, 4 verify, RX replace = full file) → `REF*38 DTP` → `1000A N1*P5 sponsor` → `1000B N1*IN payer` → `{2000 INS member (Y subscriber / N dependent, relationship 18 self 01 spouse 19 child, maintenance 021 add 024 cancel 001 change 030 audit) → REF*0F → DTP → 2100A NM1*IL N3 N4 DMG → {2300 HD coverage (HLT, DEN, VIS) plan level → DTP*348/349}}`
 
 #### 270 / 271 Eligibility Inquiry / Response (`HS` / `HB`)
 `BHT*0022*13` (request) or `*11` (response) → `HL 20` info source (NM1\*PR payer) → `HL 21` receiver (NM1\*1P provider) → `HL 22` subscriber (TRN, NM1\*IL, DMG, DTP) → `[HL 23 dependent]`.
@@ -268,8 +280,8 @@ inference) with segment- and element-level labels from the dictionary, and no do
 | Area | 004010 | 005010 |
 |---|---|---|
 | Transaction sets | 293 | 318 (+26 new incl. 999, 274, 269, 753/754, 873/874; 218 dropped) |
-| Repetition separator | none | ISA11, used e.g. in HIPAA HI/CLM composites |
-| HIPAA guides | X091–X098 (A1 addenda) | X212–X231 (A1/A2 errata) |
+| Repetition separator | none | ISA11, used e.g. in 271 `EB03` and 270 `EQ01` |
+| HIPAA guides | X061, X091–X098 (A1 addenda) | X212–X231, X279 (A1/A2 errata) |
 | Diagnosis codes | ICD-9 (`BK`, `BF`) | ICD-10 (`ABK`, `ABF`) |
 | Element lengths | shorter (e.g. NM103 35 chars) | many expanded (NM103 60 chars) |
 | Segment & code lists | — | segments and code values added or removed per document; schemas must be keyed by **GS08** |

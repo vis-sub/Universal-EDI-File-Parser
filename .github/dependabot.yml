@@ -1,0 +1,11 @@
+# Weekly update PRs for CI actions and the container base image.
+# Service Python dependencies are pinned in constraints-service.txt; refresh them as described in
+# docs/operations.md ("Refresh pinned dependencies").
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+  - package-ecosystem: docker
+    directory: /
+    schedule: {interval: weekly}
