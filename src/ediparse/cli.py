@@ -40,21 +40,40 @@ def _port(value: str) -> int:
 def _serve(args) -> int:
     try:
         import uvicorn
+
+        from .service import Settings, create_app
     except ImportError:
-        print('The service needs extra dependencies: pip install "ediparse[service]"', file=sys.stderr)
+        print('The service needs extra dependencies. From a checkout: pip install -e ".[service]"', file=sys.stderr)
         return 2
-    workers = args.workers or int(os.environ.get("WEB_CONCURRENCY", "1"))
+    raw_workers = os.environ.get("WEB_CONCURRENCY", "1")
+    workers = args.workers or (int(raw_workers) if raw_workers.isascii() and raw_workers.isdigit() else 0)
+    try:
+        if workers < 1:
+            raise ValueError(f"WEB_CONCURRENCY must be a positive integer, got {raw_workers!r}")
+        settings = Settings.from_env()  # validate configuration before starting any worker
+    except ValueError as e:
+        print(f"ediparse serve: {e}", file=sys.stderr)
+        return 2
     if workers > 1:
         uvicorn.run("ediparse.service:app", host=args.host, port=args.port, workers=workers)
     else:
-        from .service import create_app
-        uvicorn.run(create_app(), host=args.host, port=args.port)
+        uvicorn.run(create_app(settings), host=args.host, port=args.port)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except BrokenPipeError:
+        # Output piped into something that stopped reading (e.g. `| head`): exit quietly.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        return 1
+
+
+def _main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and not set(argv) & {*COMMANDS, "-h", "--help"}:
+    if argv and argv[0] not in {*COMMANDS, "-h", "--help"}:
         argv.insert(0, "parse")  # `ediparse file.edi` is shorthand for `ediparse parse file.edi`
 
     ap = argparse.ArgumentParser(prog="ediparse", description="Read any X12, EDIFACT, TRADACOMS or HL7 v2 file.")
@@ -127,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"== {f}", file=out)
                     for line in tree_lines(parse_bytes(_read(f))):
                         print(line, file=out)
+            except BrokenPipeError:
+                raise
             except (EDIDetectionError, OSError) as e:
                 print(f"{f}: {e}", file=sys.stderr)
                 status = 2

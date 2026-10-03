@@ -50,11 +50,14 @@
             "invalid_utf8",
             "isa_format",
             "leading_data",
+            "message_truncated",
             "missing_trailer",
             "no_group",
             "no_interchange",
             "orphan_una",
             "outside_message",
+            "oversized_segment",
+            "too_many_issues",
             "unmatched_segment",
             "unterminated_segment",
             "unusual_tag",
@@ -275,6 +278,10 @@
               "items": {
                 "$ref": "#/$defs/segment"
               }
+            },
+            "truncated": {
+              "const": true,
+              "description": "Present only when a max_message_segments limit stopped storing body segments (see message_truncated)"
             }
           },
           "additionalProperties": false
@@ -408,11 +415,14 @@
             "invalid_utf8",
             "isa_format",
             "leading_data",
+            "message_truncated",
             "missing_trailer",
             "no_group",
             "no_interchange",
             "orphan_una",
             "outside_message",
+            "oversized_segment",
+            "too_many_issues",
             "unmatched_segment",
             "unterminated_segment",
             "unusual_tag",

@@ -28,7 +28,7 @@ def split_escaped(s: str, sep: str, release: str | None) -> list[str]:
     return parts
 
 
-@dataclass
+@dataclass(slots=True)
 class Issue:
     severity: str  # "error" | "warning" | "info"
     code: str
@@ -42,7 +42,7 @@ class Issue:
         return d
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, slots=True)
 class Segment:
     """One segment. ``elements`` holds raw element text (escapes intact), 1-based via accessors.
 
@@ -97,7 +97,7 @@ class Segment:
         return f"Segment({self.index}: {self.raw.rstrip()!r})"
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, slots=True)
 class Message:
     """A single business document: X12 ST/SE, EDIFACT UNH/UNT, TRADACOMS MHD/MTR, HL7 MSH."""
     header: Segment
@@ -106,6 +106,8 @@ class Message:
     group: Group | None = None
     interchange: Interchange | None = None
     issues: list[Issue] = field(default_factory=list)  # issues raised while this message was open
+    body_count: int = 0  # body segments seen (can exceed len(segments) when truncated by a limit)
+    truncated: bool = False  # True if a max_message_segments limit stopped storing body segments
 
     @property
     def standard(self) -> str:
@@ -138,13 +140,13 @@ class Message:
             return ".".join(c for c in h.components(2)[1:3] if c) or None  # D.96A
         if self.standard == TRADACOMS:
             return h.value(2, 2) or None
-        return h.value(12) or None
+        return h.value(12, 1) or None  # MSH-12.1 (e.g. "2.5" from "2.5^USA")
 
     def all_segments(self) -> list[Segment]:
         return [self.header, *self.segments, *([self.trailer] if self.trailer else [])]
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, slots=True)
 class Group:
     """X12 GS/GE, EDIFACT UNG/UNE, HL7 BHS/BTS. ``header`` is None for an implicit group."""
     header: Segment | None = None
@@ -154,7 +156,10 @@ class Group:
 
     @property
     def type(self) -> str | None:
-        return self.header.value(1) if self.header else None
+        # HL7 BHS has no document-type field (BHS-1 is the field separator).
+        if not self.header or self.header.dialect.standard == HL7:
+            return None
+        return self.header.value(1)
 
     @property
     def control(self) -> str | None:
@@ -170,7 +175,7 @@ class Group:
         return None
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, slots=True)
 class Interchange:
     """X12 ISA/IEA, EDIFACT [UNA] UNB/UNZ, TRADACOMS STX/END, HL7 FHS/FTS (or implicit)."""
     dialect: Dialect
@@ -231,13 +236,12 @@ class Document:
         return self.prefix + "".join(s.raw for s in self.segments)
 
     def to_bytes(self) -> bytes:
-        errors = "surrogateescape" if self.encoding == "utf-8" else "strict"
-        return self.to_text().encode(self.encoding, errors)
+        return self.to_text().encode(self.encoding, "surrogateescape")
 
 
 # -- streaming events ----------------------------------------------------------------
 
-@dataclass(eq=False)
+@dataclass(eq=False, slots=True)
 class MessageEvent:
     """A complete business document, emitted as soon as its trailer (or the next header) is read."""
     message: Message
@@ -245,7 +249,7 @@ class MessageEvent:
     kind = "message"
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, slots=True)
 class InterchangeEvent:
     """Emitted when an interchange closes, with its control-total checks done."""
     interchange: Interchange

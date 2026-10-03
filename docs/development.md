@@ -39,7 +39,10 @@ tools/             make_samples.py (regenerates X12 samples)
 3. **Report, don't raise.** New problems become `Issue`s with a stable `code`, attached to the innermost open scope. Raise only for "no usable EDI at all".
 4. **Keep `raw`.** Anything the tokenizer skips must be appended to a segment's `raw` or the prefix, so round-trips stay exact.
 5. **User-visible text goes through `display()`**, so invalid bytes never reach JSON as lone surrogates.
-6. **Every output field is in the JSON Schema.** `test_schema.py` enforces it.
+6. **Linear time, bounded memory.** Never rescan input already examined (resume searches), never build strings by
+   repeated `+=` on large or unbounded data (collect in lists, join once), and put a limit on anything that grows
+   with input. `test_limits.py` holds the adversarial cases; add one for any new loop over input.
+7. **Every output field is in the JSON Schema.** `test_schema.py` enforces it.
 
 ## Adding a standard
 

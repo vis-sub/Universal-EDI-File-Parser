@@ -84,7 +84,8 @@ TRADACOMS_DIALECT = Dialect(TRADACOMS, "+", ":", "'", release="?", tag_separator
 # Note: str.isspace()/\s treat \x1c-\x1f as whitespace, but X12 senders use them as delimiters.
 _BLANK = " \t\r\n"
 # The lookbehind stops text such as "VISA*" inside data being taken for an ISA header.
-HEADER_RE = re.compile(r"(?<![A-Za-z0-9])(?:ISA[^\w \t\r\n]|UNA|UNB\+|STX=|(?:MSH|FHS|BHS)[^\w \t\r\n])")
+HEADER_RE = re.compile(r"(?<![A-Za-z0-9])(?:(?:ISA|UNA|MSH|FHS|BHS)[^\w \t\r\n]|UNB\+|STX=)")
+MAX_HEADER = 4096  # an interchange header still incomplete after this many characters is unreadable
 
 
 def _is_delimiter_char(c: str) -> bool:
@@ -96,10 +97,14 @@ def x12_from_isa(text: str, pos: int) -> tuple[Dialect, list[str]]:
     elem = text[pos + 3]
     # ISA is nominally fixed width (16th separator at offset 103), but tolerate
     # senders that trim padding by counting separators instead of trusting offsets.
+    # The search is bounded by MAX_HEADER so whole-text and streamed parsing always decide the same way.
+    limit = pos + MAX_HEADER
     i = pos
     for _ in range(16):
-        i = text.find(elem, i + 1)
+        i = text.find(elem, i + 1, limit)
         if i == -1:
+            if len(text) >= limit:
+                raise EDIDetectionError(f"ISA has fewer than 16 element separators in {MAX_HEADER} characters")
             raise TruncatedHeader("Truncated ISA segment")
     if i + 2 >= len(text):
         raise TruncatedHeader("Truncated ISA segment")
@@ -124,7 +129,13 @@ def edifact_from_una(text: str, pos: int) -> Dialect:
     s = text[pos + 3:pos + 9]
     if len(s) < 6:
         raise TruncatedHeader("Truncated UNA segment")
-    comp, elem, _decimal, rel, rep, term = s
+    comp, elem, decimal, rel, rep, term = s
+    # Validate, so words like "UNAVAILABLE" in junk are never taken for a service string advice.
+    required = (comp, elem, term)
+    if (any(not _is_delimiter_char(c) for c in required) or len(set(required)) < 3
+            or decimal not in ".," or (rel != " " and not _is_delimiter_char(rel))
+            or (rep != " " and not _is_delimiter_char(rep))):
+        raise EDIDetectionError(f"Invalid UNA service characters {s!r}")
     return Dialect(EDIFACT, elem, comp, term,
                    repetition=None if rep == " " else rep,
                    release=None if rel == " " else rel)
@@ -144,11 +155,12 @@ def edifact_default(text: str, pos: int) -> Dialect:
 
 def hl7_from_header(text: str, pos: int, final: bool = True) -> Dialect:
     field = text[pos + 3]
-    end = text.find(field, pos + 4)
-    if end == -1 and not final:
+    limit = pos + 4 + 16  # encoding characters are at most a handful; bounded so chunking can't matter
+    end = text.find(field, pos + 4, limit)
+    if end == -1 and len(text) < limit and not final:
         raise TruncatedHeader(f"Truncated {text[pos:pos + 3]} segment")
     enc = text[pos + 4:end if end != -1 else pos + 8]
-    enc = (enc + "^~\\&")[:4] if len(enc) < 4 else enc
+    enc = enc + "^~\\&"[len(enc):]  # missing encoding characters take their own defaults
     return Dialect(HL7, field, enc[0], "\r", repetition=enc[1], escape=enc[2], subcomponent=enc[3])
 
 
@@ -166,7 +178,9 @@ def header_dialect(text: str, pos: int, pending_una: Dialect | None,
     if head == "UNB":
         if pending_una and nxt == pending_una.element:
             version = _unb_syntax_version(text, pos, pending_una.element, pending_una.component)
-            return replace(pending_una, version=version), []
+            # UNA position 5 is "reserved" before syntax version 4: not a repetition separator there.
+            repetition = pending_una.repetition if version is None or version >= "4" else None
+            return replace(pending_una, version=version, repetition=repetition), []
         if nxt == "+":
             return edifact_default(text, pos), []
     if head == "STX" and nxt == "=":

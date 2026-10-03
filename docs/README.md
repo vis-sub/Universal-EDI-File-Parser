@@ -3,6 +3,7 @@
 | If you want to… | Read |
 |---|---|
 | Understand what this is and why it exists | [Overview](overview.md) |
+| Compare it with other open-source EDI tools | [How it compares](comparison.md) |
 | Learn enough EDI to work with it | [EDI primer for developers](edi-primer.md) |
 | Run it on your machine in five minutes | [Getting started](getting-started.md) |
 | Understand how it works inside | [Architecture](architecture.md) |
@@ -14,7 +15,7 @@
 | Run it in production | [Operations](operations.md) · [Security](security.md) |
 | See how it was tested, and run the tests | [Testing](testing.md) |
 | Change the code | [Development](development.md) |
-| See what's planned | [Roadmap](roadmap.md) |
+| See what's planned | [Roadmap](roadmap.md) (phased plan toward feature parity and beyond) |
 | Look up X12 document structures | [Document catalog](document-catalog.md) · [transaction set registry](../reference/x12_transaction_sets.json) |
 
 ## Reading paths

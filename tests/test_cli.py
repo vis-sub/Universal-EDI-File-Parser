@@ -64,3 +64,20 @@ def test_serve_rejects_bad_port_cleanly(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         main(["serve"])
     assert exc.value.code == 2 and "invalid port" in capsys.readouterr().err
+
+
+def test_shorthand_only_checks_first_argument(tmp_path):
+    """Was: `ediparse a.edi -o validate` failed because 'validate' appeared somewhere in argv."""
+    out = tmp_path / "validate"
+    assert main([PO, "-o", str(out)]) == 0
+    assert out.read_text().count('"type": "message"') == 1
+
+
+def test_broken_pipe_exits_quietly():
+    import shlex
+    import subprocess
+    import sys
+    files = [PO] * 200
+    cmd = f"{shlex.quote(sys.executable)} -m ediparse {' '.join(map(shlex.quote, files))} | head -1"
+    p = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
+    assert p.stdout.count("\n") == 1 and "Broken pipe" not in p.stderr and "Exception" not in p.stderr

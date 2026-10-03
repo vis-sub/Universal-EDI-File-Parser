@@ -4,12 +4,16 @@ Reads any **X12** (4010, 5010, and other versions), **EDIFACT**, **TRADACOMS** o
 **one JSON object per business document**. It needs no trading-partner mappings or configuration: the delimiters are
 detected from each interchange header.
 
+> **Status: v0.3.0, the first public iteration.** It reads any EDI file into JSON, robustly and at scale. Field
+> labels, acknowledgment generation, EDI writing and implementation-guide validation are next. See the
+> [roadmap](docs/roadmap.md) and [how it compares](docs/comparison.md) with other open-source EDI tools.
+
 You can use it in three ways:
 - as a **service** that dev teams spin up with Docker and stream files through
 - as a **Python library**
 - as a **command-line tool**
 
-Everything streams: memory stays flat whatever the file size, limited only by the largest single document.
+Everything streams: memory doesn't grow with file size. It's bounded by the largest single document, and the service enforces hard limits on that too (see [Operations → sizing](docs/operations.md#sizing)).
 
 ## Quick start: the service
 
@@ -43,7 +47,8 @@ task. The full walkthrough is in [docs/getting-started.md](docs/getting-started.
 | [Library](docs/library.md) · [CLI](docs/cli.md) | Python API and command-line reference |
 | [Deployment](docs/deployment.md) | Scaling; Compose, Kubernetes, ECS, Cloud Run, Container Apps, VMs, serverless |
 | [Operations](docs/operations.md) · [Security](docs/security.md) | Performance numbers, sizing, monitoring, troubleshooting, runbooks, threat model |
-| [Testing](docs/testing.md) · [Development](docs/development.md) · [Roadmap](docs/roadmap.md) | How it's tested (and what that found), contributing, what's next |
+| [How it compares](docs/comparison.md) · [Roadmap](docs/roadmap.md) | Open-source alternatives, their licenses, where each is stronger, and the phased plan |
+| [Testing](docs/testing.md) · [Development](docs/development.md) | How it's tested (and what that found), contributing |
 
 ## Library
 
@@ -117,3 +122,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY
 ## License
 
 [MIT](LICENSE)
+
+X12 is a trademark of ASC X12. HL7 is a registered trademark of Health Level Seven International. UN/EDIFACT is
+maintained by UN/CEFACT, and TRADACOMS is a GS1 UK standard. This project is independent and isn't affiliated with or
+endorsed by any of these organizations. All sample files are synthetic.

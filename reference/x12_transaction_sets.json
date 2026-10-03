@@ -1,5 +1,5 @@
 {
-  "_about": "Registry of every ASC X12 transaction set in releases 004010 and 005010. Source for ids/names: Stedi public X12 reference (stedi.com/edi/x12-004010, x12-005010), retrieved 2026-10-03. functional_group_id (GS01) is filled only for sets where it was verified; null means look it up before relying on it. usage_tier: 1 = very common in real-world trading, 2 = common in specific industries, 3 = niche.",
+  "_about": "Registry of every ASC X12 transaction set in releases 004010 and 005010. Transaction set ids and titles: Stedi public X12 reference (stedi.com/edi/x12-004010, x12-005010), retrieved 2026-10-03. functional_group_id (GS01), hipaa_guides, edifact_equivalent and usage_tier are editorial additions from commonly published values for the most-used sets (null = not provided); they were not checked against the licensed ASC X12 standard, so confirm against the standard or your partner's implementation guide before relying on them. usage_tier: 1 = very common in real-world trading, 2 = common in specific industries, 3 = niche. Not affiliated with or endorsed by ASC X12.",
   "counts": {
     "total": 319,
     "004010": 293,

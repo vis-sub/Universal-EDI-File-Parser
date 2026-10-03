@@ -240,7 +240,8 @@ EDI should be ASCII or a declared charset, but real files contain stray Latin-1 
 User-visible text (values, tags, delimiters, versions) goes through `textutil.display()`, which maps those surrogates
 to their Latin-1 characters (`0xC9` → `É`). Non-UTF-8 EDI is almost always Latin-1 or Windows-1252. An
 `invalid_utf8` notice is raised once, at the first segment containing such bytes. `output.dumps()` guarantees every
-record encodes as UTF-8 JSON. An explicit `encoding=` (e.g. `cp1252`) decodes strictly in that codec instead.
+record encodes as UTF-8 JSON. An explicit `encoding=` (an ASCII-compatible codec such as `cp1252`) uses the same
+`surrogateescape` handling, so it never fails mid-stream either.
 
 ## Error model
 
@@ -281,7 +282,9 @@ sequenceDiagram
 | Mechanism | Why |
 |---|---|
 | **Spool, then stream** | Answering while the upload is still arriving (full duplex) deadlocks common HTTP clients: they don't read the response until their upload finishes, and output is bigger than input. Spooling keeps memory bounded, because large uploads spill to disk |
-| **Probe before 200** | Once a 200 is sent, errors can only be reported in-band. Tokenizing the first 1 MiB up front turns "not EDI" into a proper 422 |
+| **Probe before 200** | Once a 200 is sent, errors can only be reported in-band. Tokenizing the first 1 MiB up front, in a worker thread, turns "not EDI" into a proper 422 |
+| **Bounded gzip** | At most 64 KiB of output per decompression step, a total cap, multi-member support, truncation detection |
+| **Batched validate/detect** | `/v1/validate` and `/v1/detect` parse in worker-thread batches and stop if the client disconnects |
 | **Sync generator in a worker thread** | Parsing is CPU-bound. Starlette runs each step off the event loop, so health checks stay responsive |
 | **~64 KiB write batches** | One thread hop per write instead of per document. This made the service about 2.3× faster in testing |
 | **`_StreamingResponse` with guaranteed cleanup** | Closes the spool on completion, error **or client disconnect**. Without it, disconnects leaked `/tmp` space (found by testing) |
@@ -297,7 +300,25 @@ Per parse:
 - counters
 
 **Memory is bounded by the largest single document, not the file size.** Measured: a 47 MB file of 150,000 claims
-peaks at about 22 MB RSS in-process. A test keeps peak traced allocations under 1.5 MB for a 5 MB stream.
+peaks at about 22 MB RSS in-process. A test keeps peak traced allocations under 1.5 MB for a 5 MB stream. A held
+document costs roughly 0.5–1 KB per segment.
+
+Everything else that could grow has a hard limit, enforced in streaming mode (the service sets them from its
+configuration):
+
+| Limit | Default (library / service) | When exceeded |
+|---|---|---|
+| Segment length (`max_segment`) | 16 MiB / 8 MiB | `oversized_segment`, skip to the next interchange header |
+| Interchange header length | 4096 characters | `bad_header`, skip to the next header |
+| Body segments kept per message (`max_message_segments`) | unlimited / 250,000 | `message_truncated`. Later segments are counted for control totals but not stored |
+| Issues kept per message/interchange (`max_issues`) | 1000 / 1000 | One `too_many_issues`, the rest dropped |
+| Segments kept outside messages per interchange | 1000 | Dropped (they still raise capped issues) |
+| Decompressed gzip body (service) | 4 GiB | `400`, or an in-band `error` once streaming has started |
+
+**Work is linear in the input.** Terminator searches resume where they stopped, runs of empty segments and whitespace
+are consumed with single regex matches, HL7 uses one combined `\r|\n` search, and skipped text is only kept (in
+lists, joined once) when the tree is retained. Tests check these paths on inputs of tens of MB, with time and memory
+bounds.
 
 Per service request, add:
 - the spool: up to `EDIPARSE_SPOOL_MEMORY_MB` (16 MB) in memory, the rest on `/tmp`
@@ -333,6 +354,6 @@ it's returned as one record. Splitting such documents is on the [roadmap](roadma
 
 ## Extension points
 
-- **A new standard:** add detection to `header_dialect()` (and `HEADER_RE`), a row to `envelope.SPECS`, and identity accessors (`type`, `control`, `version`) in `model.py`. Tokenizer, events, output and service need no changes. See [Development](development.md#adding-a-standard).
+- **A new standard:** add detection to `header_dialect()` (and `HEADER_RE`), a row to `envelope.SPECS`, and identity accessors (`type`, `control`, `version`) in `model.py`. Events and output need no changes; the tokenizer only if the standard splits tags differently, and the service only for its `/v1/info` list. See [Development](development.md#adding-a-standard).
 - **Loop resolution and field labels:** a layer that consumes `MessageEvent`s and annotates segments using data files (loop-start tables, element dictionaries). Planned; see the [roadmap](roadmap.md).
 - **New output formats:** consume events in `output.py`. Anything that streams events works with the CLI and service unchanged.
