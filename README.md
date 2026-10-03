@@ -14,7 +14,8 @@ Everything streams: memory stays flat whatever the file size, limited only by th
 ## Quick start: the service
 
 ```bash
-docker compose up --build
+make up            # docker compose: nginx + 2 parser instances on http://localhost:8080
+make smoke         # 11 end-to-end checks
 curl --data-binary @samples/x12/5010/850_purchase_order.edi http://localhost:8080/v1/parse
 ```
 
@@ -27,12 +28,22 @@ curl --data-binary @samples/x12/5010/850_purchase_order.edi http://localhost:808
 {"type": "summary", "interchanges": 1, "messages": 1, "errors": 0, "warnings": 0, "valid": true}
 ```
 
-Compose starts nginx in front of 2 parser instances. Scale out with `docker compose up -d --scale ediparse=4`.
-Interactive API docs are at http://localhost:8080/docs.
+Interactive API docs are at http://localhost:8080/docs. Scale out with `make scale N=4`. `make help` lists every
+task. The full walkthrough is in [docs/getting-started.md](docs/getting-started.md).
 
-- **[docs/service.md](docs/service.md)**: API, record format, errors, configuration, client examples
-- **[docs/deployment.md](docs/deployment.md)**: scaling, and running on Compose, Kubernetes (`deploy/kubernetes/overlays`), ECS,
-  Cloud Run, Container Apps or VMs, or as a library in queue workers or functions
+## Documentation
+
+| | |
+|---|---|
+| [Overview](docs/overview.md) | What it is, the problem it solves, who it's for, what it doesn't do |
+| [EDI primer](docs/edi-primer.md) | EDI for developers: segments, envelopes, delimiters, X12 4010 vs 5010, glossary |
+| [Getting started](docs/getting-started.md) | Run it locally and parse your first files |
+| [Architecture](docs/architecture.md) | Layers, streaming design, state machine, decoding, error model, service internals, design decisions |
+| [Service API](docs/service.md) · [Output format](docs/output-format.md) · [JSON Schema](docs/schemas/records.schema.json) | HTTP endpoints and every field of every record |
+| [Library](docs/library.md) · [CLI](docs/cli.md) | Python API and command-line reference |
+| [Deployment](docs/deployment.md) | Scaling; Compose, Kubernetes, ECS, Cloud Run, Container Apps, VMs, serverless |
+| [Operations](docs/operations.md) · [Security](docs/security.md) | Performance numbers, sizing, monitoring, troubleshooting, runbooks, threat model |
+| [Testing](docs/testing.md) · [Development](docs/development.md) · [Roadmap](docs/roadmap.md) | How it's tested (and what that found), contributing, what's next |
 
 ## Library
 
@@ -96,9 +107,12 @@ ediparse serve --port 8080                   # run the HTTP service
 ## Development
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest
+make dev           # .venv with the package and test tools
+make test lint     # tests + ruff
+make fuzz          # 200,000 fuzzed inputs against the parser's invariants
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## License
 
